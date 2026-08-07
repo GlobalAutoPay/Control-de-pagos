@@ -48,7 +48,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ¡AQUÍ PEGARÁS LA CONFIGURACIÓN DE TU FIREBASE (Sigue el Paso 4 y 5 de la Guía)!
         const firebaseConfig = {
             apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
             authDomain: "yettadashboard.firebaseapp.com",
@@ -58,30 +57,27 @@
             appId: "1:925942578448:web:3e4987c3601ce225e3f995"
         };
 
-        // Evitamos que intente conectar si aún no has puesto tus credenciales
-        if (firebaseConfig.apiKey !== "TU_API_KEY") {
-            const app = initializeApp(firebaseConfig);
-            const db = getFirestore(app);
-            // Guarda todo el estado en un solo documento para mayor simpleza
-            const docRef = doc(db, "yetta_db", "main_state");
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        // Guarda todo el estado en un solo documento para mayor simpleza
+        const docRef = doc(db, "yetta_db", "main_state");
 
-            window.FirebaseDB = {
-                save: async (data) => {
-                    try { await setDoc(docRef, data); console.log("Nube: Sincronización exitosa"); } 
-                    catch(e) { console.error("Nube Error (Guardar):", e); }
-                },
-                load: async () => {
-                    try { 
-                        const snap = await getDoc(docRef); 
-                        if (snap.exists()) return snap.data(); 
-                    } 
-                    catch(e) { console.error("Nube Error (Cargar):", e); }
-                    return null;
-                }
-            };
+        window.FirebaseDB = {
+            save: async (data) => {
+                try { await setDoc(docRef, data); console.log("Nube: Sincronización exitosa"); } 
+                catch(e) { console.error("Nube Error (Guardar):", e); }
+            },
+            load: async () => {
+                try { 
+                    const snap = await getDoc(docRef); 
+                    if (snap.exists()) return snap.data(); 
+                } 
+                catch(e) { console.error("Nube Error (Cargar):", e); }
+                return null;
+            }
+        };
 
-            window.dispatchEvent(new Event('firebase-ready'));
-        }
+        window.dispatchEvent(new Event('firebase-ready'));
     </script>
 
     <script>
@@ -1449,16 +1445,28 @@
                 <div><h2 class="text-xl font-bold text-gray-900">Ajustes & Backups</h2></div></div>
                 
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+                    <h3 class="font-bold text-sm mb-4">Zoom de la Interfaz</h3>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center text-xs font-bold text-gray-500">
+                            <span>Menos Zoom</span>
+                            <span class="text-gray-900 bg-gray-100 px-2 py-1 rounded border border-gray-200 shadow-sm">${Math.round(state.zoomLevel * 100)}%</span>
+                            <span>Más Zoom</span>
+                        </div>
+                        <input type="range" min="0.5" max="1.5" step="0.05" value="${state.zoomLevel}" onchange="App.setZoom(this.value)" class="w-full accent-red-600 outline-none"/>
+                        <p class="text-[9px] text-gray-400 text-center mt-2">El zoom manual se desactiva automáticamente en teléfonos para mantener la correcta visualización.</p>
+                        <button onclick="App.setZoom(1)" class="mt-2 text-[10px] font-bold text-red-600 hover:underline mx-auto block">Restablecer por defecto (100%)</button>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
                     <h3 class="font-bold text-sm mb-4 flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-blue-500"></i> Nube y Telegram</h3>
                     
-                    <button onclick="if(window.FirebaseDB) { window.FirebaseDB.save(state); this.innerHTML='<i data-lucide=\\'check\\' class=\\'w-4 h-4\\'></i> ¡Guardado!'; setTimeout(()=> { this.innerHTML='<i data-lucide=\\'cloud-upload\\' class=\\'w-4 h-4\\'></i> Forzar Sincronización'; lucide.createIcons();}, 2000); lucide.createIcons(); } else { alert('Aún no has pegado las claves de Firebase en el código'); }" class="w-full bg-blue-50 text-blue-600 border border-blue-200 text-xs font-bold py-2.5 rounded-lg mb-4 hover:bg-blue-100 flex justify-center items-center gap-2 transition-colors">
+                    <button onclick="if(window.FirebaseDB) { window.FirebaseDB.save(state); this.innerHTML='<i data-lucide=\\'check\\' class=\\'w-4 h-4\\'></i> ¡Guardado!'; setTimeout(()=> { this.innerHTML='<i data-lucide=\\'cloud-upload\\' class=\\'w-4 h-4\\'></i> Forzar Sincronización'; lucide.createIcons();}, 2000); lucide.createIcons(); } else { alert('Firebase no está conectado'); }" class="w-full bg-blue-50 text-blue-600 border border-blue-200 text-xs font-bold py-2.5 rounded-lg mb-4 hover:bg-blue-100 flex justify-center items-center gap-2 transition-colors">
                         <i data-lucide="cloud-upload" class="w-4 h-4"></i> Forzar Sincronización
                     </button>
 
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Archivo a Telegram</button>
-                        <p class="text-[9px] text-gray-400 text-center mt-1">El zoom manual se desactiva automáticamente en teléfonos.</p>
-                        <button onclick="App.setZoom(1)" class="mt-2 text-[10px] font-bold text-red-600 hover:underline mx-auto">Restablecer por defecto (100%)</button>
                     </div>
                 </div>
 
