@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Yetta Services Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --app-zoom: 1;
+        }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #F8F9FA; 
+            zoom: var(--app-zoom); 
+            /* Previene rebotes extraños en móviles */
+            overscroll-behavior-y: none;
+        }
+        /* Scrollbar personalizado y suave para móviles */
+        .custom-scrollbar {
+            -webkit-overflow-scrolling: touch; /* Scroll suave en iOS/Android */
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        input::-webkit-calendar-picker-indicator { display: none !important; }
+        
+        /* Ajuste para altura real en móviles */
+        .h-screen-mobile {
+            height: 100vh;
+            height: 100dvh;
+        }
+    </style>
+</head>
+<body class="h-screen-mobile overflow-hidden flex flex-col lg:flex-row p-0 sm:p-4 md:p-6 gap-0 sm:gap-4 text-gray-800 selection:bg-red-100 selection:text-red-900">
+
+    <div id="app-root" class="w-full h-full flex flex-col lg:flex-row gap-0 sm:gap-4 max-w-[1400px] mx-auto relative bg-[#F8F9FA] sm:bg-transparent">
+        <!-- Reactivity Root -->
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ¡AQUÍ PEGARÁS LA CONFIGURACIÓN DE TU FIREBASE (Sigue el Paso 4 y 5 de la Guía)!
+        const firebaseConfig = {
+            apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
+            authDomain: "yettadashboard.firebaseapp.com",
+            projectId: "yettadashboard",
+            storageBucket: "yettadashboard.firebasestorage.app",
+            messagingSenderId: "925942578448",
+            appId: "1:925942578448:web:3e4987c3601ce225e3f995"
+        };
+
+        // Evitamos que intente conectar si aún no has puesto tus credenciales
+        if (firebaseConfig.apiKey !== "TU_API_KEY") {
+            const app = initializeApp(firebaseConfig);
+            const db = getFirestore(app);
+            // Guarda todo el estado en un solo documento para mayor simpleza
+            const docRef = doc(db, "yetta_db", "main_state");
+
+            window.FirebaseDB = {
+                save: async (data) => {
+                    try { await setDoc(docRef, data); console.log("Nube: Sincronización exitosa"); } 
+                    catch(e) { console.error("Nube Error (Guardar):", e); }
+                },
+                load: async () => {
+                    try { 
+                        const snap = await getDoc(docRef); 
+                        if (snap.exists()) return snap.data(); 
+                    } 
+                    catch(e) { console.error("Nube Error (Cargar):", e); }
+                    return null;
+                }
+            };
+
+            window.dispatchEvent(new Event('firebase-ready'));
+        }
+    </script>
+
+    <script>
+        const savedZoom = localStorage.getItem('yetta_zoom') || 1;
+        document.documentElement.style.setProperty('--app-zoom', savedZoom);
+
+        const getEmptyRows = () => Array(10).fill().map((_, i) => ({
+            id: Date.now() + i, cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop'
+        }));
+
+        let state = {
+            zoomLevel: savedZoom,
+            activeTab: 'dashboard',
+            activeDate: new Date().toISOString().split('T')[0],
+            showNextDayModal: false,
+            estimationPeriod: 'dia', 
+            saveStatus: null, 
+            resumenTab: 'todos', 
+            tabOrder: ['dashboard', 'suppliers', 'memberships', 'users', 'tools', 'calculator', 'sales', 'settings'],
+
+            entityModal: { show: false, type: 'cliente' },
+            calcState: { displayBase: 'USDT', baseValue: '' },
+
+            generatedPassword: '',
+            passwordHistory: [],
+            keySearchQuery: '',
+            keySearchResult: null,
+            isSearchingKey: false,
+            keysStore: [
+                { sn: "A5GGBB5916117838", key: "549E7CED79FAB4C0" },
+                { sn: "AC3N6R4C11008453", key: "CF7LY96LZ315WL34FRP" },
+                { sn: "A7RM6R5103003989", key: "DQE5TSJC5YFSHCMAFRP" },
+                { sn: "ASXX6R5221001418", key: "318LXU0A5DNULN7AFRP" },
+                { sn: "AF6RUT5626000482", key: "RD73G578DJVT9WZXFRP" }
+                // Se conservan los datos
+            ],
+
+            salesSearchQuery: '',
+            salesData: {
+                initialInvestment: 0,
+                products: [],
+                history: []
+            },
+
+            clients: [
+                { id: 1, name: 'Juan Pérez', currency: 'cop', debt: 0, type: 'cliente' },
+                { id: 2, name: 'María Gómez', currency: 'usdt', debt: 0, type: 'cliente' },
+                { id: 3, name: 'Carlos Rodríguez', currency: 'mxn', debt: 0, type: 'cliente' }
+            ],
+            suppliers: [
+                { id: 1, name: 'Hosting AWS', currency: 'usdt', debt: 0, type: 'proveedor' }
+            ],
+            memberships: [],
+            exchangeRates: { cop: 4000, mxn: 17, usdt: 1 },
+            paymentSheets: { [new Date().toISOString().split('T')[0]]: getEmptyRows() },
+            supplierSheets: { [new Date().toISOString().split('T')[0]]: getEmptyRows() }
+        };
+
+        const App = {};
+
+        // Función centralizada para autoguardado en la nube
+        App.syncToCloud = () => {
+            if (window.FirebaseDB) window.FirebaseDB.save(state);
+        };
+
+        // --- STREAMING_CHUNK:Lógica de Detección de Dispositivo Móvil ---
+        App.checkResponsive = () => {
+            const isMobile = window.innerWidth < 1024;
+            if (isMobile) {
+                // En móviles, forzamos el zoom a 1 para que el navegador maneje el responsive natural 
+                // y evitar que la app se vea excesivamente pequeña o distorsionada.
+                document.documentElement.style.setProperty('--app-zoom', 1);
+                document.body.classList.add('mobile-mode');
+            } else {
+                // En escritorio, respetamos el zoom seleccionado por el usuario.
+                document.documentElement.style.setProperty('--app-zoom', state.zoomLevel);
+                document.body.classList.remove('mobile-mode');
+            }
+        };
+
+        // Escuchar cambios en el tamaño de la ventana
+        window.addEventListener('resize', App.checkResponsive);
+
+        // --- STREAMING_CHUNK:Definiendo Core & Navegación ---
+        function render() {
+            const activeElementId = document.activeElement ? document.activeElement.id : null;
+            let selectionStart = null;
+            let selectionEnd = null;
+
+            if (activeElementId && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                try {
+                    selectionStart = document.activeElement.selectionStart;
+                    selectionEnd = document.activeElement.selectionEnd;
+                } catch (e) {}
+            }
+
+            document.getElementById('app-root').innerHTML = `
+                ${renderSidebar()}
+                <main class="flex-1 flex flex-col gap-4 w-full h-full overflow-hidden relative p-2 sm:p-0">
+                    ${renderHeader()}
+                    <div class="flex-1 overflow-auto w-full pb-20 lg:pb-0 custom-scrollbar pr-1 sm:pr-2">
+                        ${renderContent()}
+                    </div>
+                </main>
+                ${renderMobileNav()}
+                ${state.showNextDayModal ? renderNextDayModal() : ''}
+                ${state.entityModal.show ? renderEntityModal() : ''}
+            `;
+            lucide.createIcons();
+
+            if (activeElementId) {
+                const el = document.getElementById(activeElementId);
+                if (el) {
+                    el.focus();
+                    if (selectionStart !== null && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.type !== 'number') {
+                        try { el.setSelectionRange(selectionStart, selectionEnd); } catch (e) {}
+                    }
+                }
+            }
+        }
+
+        App.setActiveTab = (tab) => { state.activeTab = tab; render(); };
+        App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); };
+        
+        App.setZoom = (val) => {
+            localStorage.setItem('yetta_zoom', val);
+            state.zoomLevel = val;
+            // Evaluamos si aplicarlo dependiendo de si es móvil o no
+            App.checkResponsive(); 
+            if(window.innerWidth >= 1024) render();
+        };
+
+        App.handleDragStart = (e, id) => { 
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData('text/plain', id); 
+        };
+        App.handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+        App.handleDrop = (e, targetId) => {
+            e.preventDefault();
+            const sourceId = e.dataTransfer.getData('text/plain');
+            if (!sourceId || sourceId === targetId) return;
+            const newOrder = [...state.tabOrder];
+            const sourceIndex = newOrder.indexOf(sourceId);
+            const targetIndex = newOrder.indexOf(targetId);
+            if(sourceIndex !== -1 && targetIndex !== -1) {
+                newOrder.splice(sourceIndex, 1);
+                newOrder.splice(targetIndex, 0, sourceId);
+                state.tabOrder = newOrder;
+                render();
+            }
+        };
+
+        // --- STREAMING_CHUNK:Definiendo Funciones Financieras ---
+        App.formatCurrency = (value, currency = 'usdt') => {
+            let val = parseFloat(value);
+            if (isNaN(val)) val = 0;
+            if (currency === 'cop') return new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val);
+            return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
+        };
+
+        App.parseInputValue = (val, currency) => {
+            if (!val) return '';
+            const clean = val.toString().replace(/[^\d.]/g, '');
+            return currency === 'cop' ? clean.replace(/\./g, '') : clean;
+        };
+
+        App.formatInputValue = (val, currency) => {
+            if (!val) return '';
+            const clean = val.toString().replace(/[^\d.]/g, '');
+            if (currency === 'cop') {
+                const num = parseInt(clean.replace(/\./g, ''), 10);
+                return isNaN(num) ? '' : num.toLocaleString('es-CO');
+            }
+            return clean;
+        };
+
+        App.changeDate = (days) => {
+            const current = new Date(state.activeDate + 'T00:00:00');
+            current.setDate(current.getDate() + days);
+            state.activeDate = current.toISOString().split('T')[0];
+            if(!state.paymentSheets[state.activeDate]) state.paymentSheets[state.activeDate] = getEmptyRows();
+            if(!state.supplierSheets[state.activeDate]) state.supplierSheets[state.activeDate] = getEmptyRows();
+            render();
+        };
+
+        App.addRow = (sheetType) => {
+            const targetSheet = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
+            if(!targetSheet[state.activeDate]) targetSheet[state.activeDate] = [];
+            targetSheet[state.activeDate].push({ id: Date.now(), cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop' });
+            render();
+        };
+
+        App.removeRow = (sheetType, index) => {
+             const targetSheet = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
+             if(targetSheet[state.activeDate] && targetSheet[state.activeDate].length > 1) {
+                  targetSheet[state.activeDate].splice(index, 1);
+                  render();
+             }
+        };
+
+        App.getGlobalDebt = (type = 'cliente') => {
+            let totalUsdt = 0;
+            const sheets = type === 'cliente' ? state.paymentSheets : state.supplierSheets;
+            
+            Object.values(sheets).forEach(rows => {
+                rows.forEach(row => {
+                    const p = parseFloat(row.precio) || 0;
+                    if(p > 0 && row.pagado === 'no') {
+                        const curr = row.metodo || 'cop';
+                        const rate = state.exchangeRates[curr] || 1;
+                        totalUsdt += (curr === 'usdt' ? p : p / rate);
+                    }
+                });
+            });
+            
+            return totalUsdt;
+        };
+
+        App.getWeeklyStats = (sheetType = 'payments') => {
+            const today = new Date(state.activeDate + 'T00:00:00');
+            const dayOfWeek = today.getDay();
+            const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+            
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(diffToMonday);
+            startOfWeek.setHours(0, 0, 0, 0);
+
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 6);
+            endOfWeek.setHours(23, 59, 59, 999);
+
+            const totals = { cop: 0, usdt: 0, mxn: 0 };
+            const sheets = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
+            
+            Object.keys(sheets).forEach(dateStr => {
+                const sheetDate = new Date(dateStr + 'T00:00:00');
+                if (sheetDate >= startOfWeek && sheetDate <= endOfWeek) {
+                    sheets[dateStr].forEach(row => {
+                        const precio = parseFloat(row.precio) || 0;
+                        if (precio > 0 && row.pagado === 'si') totals[row.metodo || 'cop'] += precio;
+                    });
+                }
+            });
+
+            const totalUsdt = totals.usdt + (totals.cop / state.exchangeRates.cop) + (totals.mxn / state.exchangeRates.mxn);
+            return { desglose: totals, totalConvertido: totalUsdt };
+        };
+
+        App.getCurrentStats = (sheetType = 'payments') => {
+            const rows = (sheetType === 'payments' ? state.paymentSheets : state.supplierSheets)[state.activeDate] || [];
+            const stats = { cobrados: { count: 0, cop: 0, usdt: 0, mxn: 0, total: 0 }, pendientes: { count: 0, cop: 0, usdt: 0, mxn: 0, total: 0 } };
+            
+            rows.forEach(row => {
+                const precio = parseFloat(row.precio) || 0;
+                const m = row.metodo || 'cop';
+                if (precio > 0) {
+                    const target = row.pagado === 'si' ? stats.cobrados : stats.pendientes;
+                    target.count++;
+                    target[m] += precio;
+                }
+            });
+
+            stats.cobrados.total = stats.cobrados.usdt + (stats.cobrados.cop / state.exchangeRates.cop) + (stats.cobrados.mxn / state.exchangeRates.mxn);
+            stats.pendientes.total = stats.pendientes.usdt + (stats.pendientes.cop / state.exchangeRates.cop) + (stats.pendientes.mxn / state.exchangeRates.mxn);
+            return stats;
+        };
+
+        // --- STREAMING_CHUNK:Lógica de Tablas y Cálculo Principal ---
+        App.updateRow = (sheetType, index, field, value) => {
+            const targetSheet = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
+            let currentRows = targetSheet[state.activeDate];
+            
+            if (field === 'metodo') currentRows[index][field] = value;
+            else if (field === 'precio') {
+                const curr = currentRows[index].metodo || 'cop';
+                currentRows[index][field] = App.parseInputValue(value, curr);
+            } 
+            else if (field === 'trabajo') {
+                currentRows[index][field] = value;
+                const matchedProduct = state.salesData.products.find(p => p.name.toLowerCase() === value.toLowerCase());
+                if (matchedProduct && (!currentRows[index].precio || currentRows[index].precio === '0' || currentRows[index].precio === '')) {
+                    currentRows[index].precio = sheetType === 'payments' ? matchedProduct.price.toString() : matchedProduct.cost.toString();
+                }
+            }
+            else currentRows[index][field] = value;
+            
+            if (field === 'targetId' && value) {
+                const list = sheetType === 'payments' ? state.clients : state.suppliers;
+                const entity = list.find(e => e.id === parseInt(value));
+                if (entity) currentRows[index].metodo = entity.currency;
+            }
+            render();
+        };
+
+        App.handleSaveAndCalculate = () => {
+            state.saveStatus = 'saving';
+            render();
+            
+            // Recalcular deuda clientes global
+            const newClientDebts = {};
+            state.clients.forEach(c => newClientDebts[c.id] = 0);
+            Object.values(state.paymentSheets).forEach(rows => {
+                rows.forEach(row => {
+                    if (row.targetId && row.pagado === 'no') {
+                        const p = parseFloat(row.precio) || 0;
+                        const client = state.clients.find(c => c.id === parseInt(row.targetId));
+                        if(client) {
+                            const rowCurr = row.metodo || 'cop';
+                            const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
+                            const pClientCurr = client.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[client.currency] || 1);
+                            if (newClientDebts[row.targetId] !== undefined) newClientDebts[row.targetId] += pClientCurr;
+                        }
+                    }
+                });
+            });
+            state.clients = state.clients.map(c => ({ ...c, debt: newClientDebts[c.id] || 0 }));
+
+            // Recalcular deuda proveedores global
+            const newSupDebts = {};
+            state.suppliers.forEach(s => newSupDebts[s.id] = 0);
+            Object.values(state.supplierSheets).forEach(rows => {
+                rows.forEach(row => {
+                    if (row.targetId && row.pagado === 'no') {
+                        const p = parseFloat(row.precio) || 0;
+                        const supplier = state.suppliers.find(c => c.id === parseInt(row.targetId));
+                        if(supplier) {
+                            const rowCurr = row.metodo || 'cop';
+                            const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
+                            const pSupCurr = supplier.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[supplier.currency] || 1);
+                            if (newSupDebts[row.targetId] !== undefined) newSupDebts[row.targetId] += pSupCurr;
+                        }
+                    }
+                });
+            });
+            state.suppliers = state.suppliers.map(s => ({ ...s, debt: newSupDebts[s.id] || 0 }));
+
+            App.syncToCloud();
+
+            setTimeout(() => {
+                state.saveStatus = 'saved';
+                render();
+                setTimeout(() => { state.saveStatus = null; state.showNextDayModal = true; render(); }, 800);
+            }, 600);
+        };
+
+        // --- STREAMING_CHUNK:Utilidades y Funciones Menores ---
+        App.generateRandomPassword = () => {
+            const prefix = "wymagic";
+            const chars = "tqwzxk";
+            let randomPart = "";
+            for (let i = 0; i < 4; i++) randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+            state.generatedPassword = prefix + randomPart;
+            render();
+        };
+
+        App.copyPassword = () => {
+            if(!state.generatedPassword) return;
+            navigator.clipboard.writeText(state.generatedPassword).then(() => {
+                if(!state.passwordHistory.includes(state.generatedPassword)) {
+                    state.passwordHistory.unshift(state.generatedPassword);
+                    if(state.passwordHistory.length > 5) state.passwordHistory.pop();
+                }
+                render();
+            });
+        };
+
+        App.setKeySearchQuery = (val) => { state.keySearchQuery = val; state.keySearchResult = null; render(); };
+
+        App.searchKey = () => {
+            if(!state.keySearchQuery.trim()) return;
+            state.isSearchingKey = true;
+            render();
+            setTimeout(() => {
+                const found = state.keysStore.find(k => k.sn.toUpperCase() === state.keySearchQuery.trim().toUpperCase());
+                state.keySearchResult = found ? found.key : 'NO ENCONTRADO';
+                state.isSearchingKey = false;
+                render();
+            }, 3000);
+        };
+
+        App.addKey = (e) => {
+            e.preventDefault();
+            const sn = e.target.sn.value.trim().toUpperCase();
+            const key = e.target.key.value.trim().toUpperCase();
+            if(sn && key && !state.keysStore.find(k => k.sn === sn)) {
+                state.keysStore.push({ sn, key });
+                e.target.reset();
+                render();
+            }
+        };
+
+        App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); };
+        App.setSalesSearchQuery = (val) => { state.salesSearchQuery = val; render(); };
+
+        App.addSalesProduct = (e) => {
+            e.preventDefault();
+            const name = e.target.name.value;
+            const cost = parseFloat(e.target.cost.value) || 0;
+            const price = parseFloat(e.target.price.value) || 0;
+            if(name && price > 0) {
+                state.salesData.products.push({ id: Date.now(), name, cost, price });
+                e.target.reset();
+                render();
+            }
+        };
+
+        App.deleteSalesProduct = (id) => { state.salesData.products = state.salesData.products.filter(p => p.id !== id); render(); };
+
+        App.updateSaleHistory = (id, field, value) => {
+            const index = state.salesData.history.findIndex(h => h.id === id);
+            if(index !== -1) {
+                if(field === 'pagado') {
+                    state.salesData.history[index][field] = value;
+                } else {
+                    const numValue = parseFloat(value) || 0;
+                    state.salesData.history[index][field] = numValue;
+                }
+                render();
+            }
+        };
+
+        App.recordSale = (productId) => {
+            const product = state.salesData.products.find(p => p.id === productId);
+            const clientSelect = document.getElementById(`sales-client-${productId}`);
+            const clientId = clientSelect ? clientSelect.value : '';
+
+            if(product) {
+                state.salesData.history.unshift({
+                    id: Date.now(), date: new Date().toLocaleString(),
+                    productName: product.name, cost: product.cost, price: product.price, clientId: clientId, pagado: 'si'
+                });
+
+                if (clientId) {
+                    const client = state.clients.find(c => c.id === parseInt(clientId));
+                    let sheet = state.paymentSheets[state.activeDate];
+                    if(!sheet) sheet = getEmptyRows();
+                    
+                    let emptyRowIndex = sheet.findIndex(r => !r.targetId && !r.trabajo && (!r.precio || r.precio === ''));
+                    if (emptyRowIndex === -1) {
+                        sheet.push(getEmptyRows()[0]);
+                        emptyRowIndex = sheet.length - 1;
+                    }
+                    
+                    sheet[emptyRowIndex].targetId = clientId;
+                    sheet[emptyRowIndex].trabajo = product.name;
+                    sheet[emptyRowIndex].precio = product.price.toString();
+                    sheet[emptyRowIndex].metodo = client ? client.currency : 'cop';
+                    sheet[emptyRowIndex].pagado = 'si';
+                    
+                    state.paymentSheets[state.activeDate] = sheet;
+                }
+                
+                if(clientSelect) clientSelect.value = '';
+                App.syncToCloud();
+                render();
+            }
+        };
+
+        App.deleteSaleRecord = (id) => { state.salesData.history = state.salesData.history.filter(h => h.id !== id); render(); };
+
+        App.openEntityModal = (type) => { state.entityModal = { show: true, type }; render(); };
+        App.closeEntityModal = () => { state.entityModal.show = false; render(); };
+        App.saveEntity = (e) => {
+            e.preventDefault();
+            const name = e.target.name.value;
+            const currency = e.target.currency.value;
+            if(name) {
+                const newEntity = { id: Date.now(), name, currency, debt: 0, type: state.entityModal.type };
+                if(state.entityModal.type === 'cliente') state.clients.push(newEntity);
+                else state.suppliers.push(newEntity);
+                App.syncToCloud();
+                App.closeEntityModal();
+            }
+        };
+        App.deleteEntity = (type, id) => {
+            if(type === 'cliente') state.clients = state.clients.filter(c => c.id !== id);
+            else state.suppliers = state.suppliers.filter(s => s.id !== id);
+            App.syncToCloud();
+            render();
+        };
+
+        App.addMembership = (e) => {
+            e.preventDefault();
+            const clientId = parseInt(e.target.clientId.value);
+            const plan = e.target.plan.value;
+            const amount = parseFloat(e.target.amount.value);
+            const currency = e.target.currency.value;
+            const nextBilling = e.target.nextBilling.value;
+
+            if (clientId && plan && amount && nextBilling) {
+                state.memberships.push({ id: Date.now(), clientId, plan, amount, currency, nextBilling, status: 'activa' });
+                e.target.reset();
+                App.syncToCloud();
+                render();
+            }
+        };
+        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); App.syncToCloud(); render(); };
+
+        App.setCalcBase = (base) => { state.calcState.displayBase = base; render(); };
+        App.calcInput = (char) => {
+            if (char === 'C') state.calcState.baseValue = '';
+            else if (char === 'DEL') state.calcState.baseValue = state.calcState.baseValue.slice(0, -1);
+            else state.calcState.baseValue += char;
+            render();
+        };
+        App.copyCalc = (val) => { navigator.clipboard.writeText(val); };
+        
+        document.addEventListener('keydown', (e) => {
+            if(state.activeTab !== 'calculator' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            const valid = ['0','1','2','3','4','5','6','7','8','9','.'];
+            if(valid.includes(e.key)) App.calcInput(e.key);
+            if(e.key === 'Backspace') App.calcInput('DEL');
+            if(e.key.toLowerCase() === 'c') App.calcInput('C');
+        });
+
+        // --- STREAMING_CHUNK:Lógica de Backups y Envíos a Telegram ---
+        App.restoreBackup = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const restored = JSON.parse(event.target.result);
+                        state = { ...state, ...restored, activeTab: 'dashboard' };
+                        render();
+                    } catch (err) {
+                        console.error(err);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        };
+
+        App.sendToTelegram = async (dataObj, filename, captionMsg) => {
+            try {
+                const p1 = "ODM3MjgwMDYxODpBQUh3"; 
+                const p2 = "SDlRLVdpbkFhd3J0WUsxaGI="; 
+                const p3 = "d1hHNk1QMEhUaW9pQWc=";
+                const token = atob(p1) + atob(p2) + atob(p3);
+                const chatId = "-1003386649985";
+                
+                const jsonStr = JSON.stringify(dataObj, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const formData = new FormData();
+                formData.append('document', blob, filename);
+                formData.append('chat_id', chatId);
+                formData.append('caption', captionMsg);
+                
+                await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: formData });
+            } catch (err) { console.error(err); }
+        };
+
+        App.exportData = (type) => {
+            let data = {};
+            if(type === 'all') data = state;
+            if(type === 'payments') data = state.paymentSheets;
+            if(type === 'suppliers') data = state.supplierSheets;
+            if(type === 'keys') data = state.keysStore;
+            App.sendToTelegram(data, `backup_${type}.json`, `Backup manual: ${type}`);
+        };
+
+        App.generateInvoiceAndSend = async (id, type = 'cliente') => {
+            const isClient = type === 'cliente';
+            const entityList = isClient ? state.clients : state.suppliers;
+            const sheets = isClient ? state.paymentSheets : state.supplierSheets;
+            const entity = entityList.find(e => e.id === id);
+            if (!entity) return;
+
+            let invoiceText = `🧾 *FACTURA DE ESTADO DE CUENTA*\n`;
+            invoiceText += `👤 *${isClient ? 'Cliente' : 'Proveedor'}:* ${entity.name}\n`;
+            invoiceText += `📅 *Fecha:* ${new Date().toLocaleDateString()}\n\n`;
+            invoiceText += `*${isClient ? 'Servicios Pendientes' : 'Conceptos Pendientes'}:*\n`;
+
+            let hasPending = false;
+            const dates = Object.keys(sheets).sort();
+            
+            dates.forEach(date => {
+                const rows = sheets[date];
+                rows.forEach(row => {
+                    if (row.targetId == id && row.pagado === 'no') {
+                        hasPending = true;
+                        const precioFormateado = App.formatCurrency(row.precio, row.metodo);
+                        const moneda = (row.metodo || 'cop').toUpperCase();
+                        const servicio = row.trabajo || (isClient ? 'Servicio General' : 'Concepto General');
+                        invoiceText += `• [${date}] ${servicio} (x${row.cant}): $${precioFormateado} ${moneda}\n`;
+                    }
+                });
+            });
+
+            if (!hasPending) {
+                invoiceText += `_No hay ${isClient ? 'servicios' : 'conceptos'} pendientes registrados._\n`;
+            }
+
+            invoiceText += `\n💵 *Deuda Total:* $${App.formatCurrency(entity.debt, entity.currency)} ${entity.currency.toUpperCase()}`;
+
+            try {
+                const p1 = "ODM3MjgwMDYxODpBQUh3"; 
+                const p2 = "SDlRLVdpbkFhd3J0WUsxaGI="; 
+                const p3 = "d1hHNk1QMEhUaW9pQWc=";
+                const token = atob(p1) + atob(p2) + atob(p3);
+                const chatId = "-1003386649985";
+                
+                const url = `https://api.telegram.org/bot${token}/sendMessage`;
+                await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        text: invoiceText,
+                        parse_mode: 'Markdown'
+                    })
+                });
+                
+                const btnId = isClient ? `invoice-btn-${id}` : `invoice-btn-sup-${id}`;
+                const btn = document.getElementById(btnId);
+                if(btn) {
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i>';
+                    btn.classList.add('text-green-500');
+                    lucide.createIcons();
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                        btn.classList.remove('text-green-500');
+                        lucide.createIcons();
+                    }, 2000);
+                }
+            } catch(e) {
+                console.error("Error al enviar factura: ", e);
+            }
+        };
+
+        // --- STREAMING_CHUNK:Renderizado de Layout Base ---
+        function renderSidebar() {
+            const navItems = [
+                { id: 'dashboard', icon: 'layout-grid', tooltip: 'Dashboard (Ingresos)' },
+                { id: 'suppliers', icon: 'building-2', tooltip: 'Proveedores (Egresos)' },
+                { id: 'memberships', icon: 'credit-card', tooltip: 'Membresías' },
+                { id: 'users', icon: 'users', tooltip: 'Directorio' },
+                { id: 'tools', icon: 'key', tooltip: 'Herramientas & Keys' },
+                { id: 'calculator', icon: 'calculator', tooltip: 'Calculadora' },
+                { id: 'sales', icon: 'shopping-bag', tooltip: 'Ventas e Inversiones' },
+                { id: 'settings', icon: 'settings', tooltip: 'Ajustes' }
+            ];
+            const sortedItems = state.tabOrder.map(id => navItems.find(item => item && item.id === id)).filter(Boolean);
+
+            return `
+            <aside class="hidden lg:flex flex-col items-center w-20 bg-white rounded-2xl py-6 shadow-sm border border-gray-100 flex-shrink-0 h-full overflow-hidden">
+                <div class="flex flex-col items-center gap-6 w-full h-full overflow-hidden">
+                    <div class="w-10 h-10 rounded-full border-4 border-red-600 border-t-transparent flex-shrink-0 flex items-center justify-center rotate-45 mb-2">
+                        <div class="w-3 h-3 bg-red-600 rounded-full"></div>
+                    </div>
+                    <nav class="flex flex-col gap-3 w-full px-3 flex-1 overflow-y-auto custom-scrollbar pb-2">
+                        ${sortedItems.map(item => `
+                        <button draggable="true" ondragstart="App.handleDragStart(event, '${item.id}')" ondragover="App.handleDragOver(event)" ondrop="App.handleDrop(event, '${item.id}')" onclick="App.setActiveTab('${item.id}')" class="w-full flex-shrink-0 aspect-square rounded-xl flex items-center justify-center transition-all relative group ${state.activeTab === item.id ? 'bg-gray-900 text-white shadow-md' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}" title="${item.tooltip}">
+                            <i data-lucide="${item.icon}" class="w-5 h-5"></i>
+                        </button>
+                        `).join('')}
+                    </nav>
+                </div>
+            </aside>`;
+        }
+
+        function renderHeader() {
+            return `
+            <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0 mx-2 mt-2 sm:mx-0 sm:mt-0">
+                <div>
+                    <h1 class="text-xl font-black text-gray-900 flex items-center gap-2 uppercase tracking-tight">CONTROL DE PAGOS <span class="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full hidden sm:inline-block">YETTA SERVICES</span></h1>
+                    <p class="text-gray-400 text-[11px] mt-0.5 font-medium">Sistema de Gestión Operativa</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="relative flex items-center w-full sm:w-auto">
+                        <input type="text" placeholder="Buscar registros..." class="pl-4 pr-10 py-2 bg-gray-50 rounded-lg text-xs outline-none w-full sm:w-48 border border-gray-200 focus:border-red-400 transition-colors"/>
+                        <i data-lucide="search" class="absolute right-3 w-3.5 h-3.5 text-gray-400"></i>
+                    </div>
+                    <button class="w-9 h-9 flex-shrink-0 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors relative">
+                        <i data-lucide="bell" class="w-4 h-4"></i>
+                        <span class="absolute top-2 right-2 w-1.5 h-1.5 bg-red-600 rounded-full"></span>
+                    </button>
+                </div>
+            </header>`;
+        }
+
+        function renderMobileNav() {
+            return `<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex overflow-x-auto gap-2 px-3 py-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)] [&::-webkit-scrollbar]:hidden" style="scrollbar-width: none;">
+                ${state.tabOrder.map(id => {
+                    const icons = { dashboard:'layout-grid', suppliers:'building-2', memberships:'credit-card', users:'users', tools:'key', calculator:'calculator', sales:'shopping-bag', settings:'settings' };
+                    return `<button onclick="App.setActiveTab('${id}')" class="p-2.5 flex-shrink-0 min-w-[60px] rounded-xl flex items-center justify-center ${state.activeTab === id ? 'text-red-600 bg-red-50' : 'text-gray-400'}"><i data-lucide="${icons[id]}" class="w-5 h-5"></i></button>`;
+                }).join('')}
+            </nav>`;
+        }
+
+        // --- STREAMING_CHUNK:Renderizado de Vistas Principales ---
+        function renderContent() {
+             if(state.activeTab === 'dashboard') return renderDashboard();
+             if(state.activeTab === 'suppliers') return renderSuppliers();
+             if(state.activeTab === 'memberships') return renderMemberships();
+             if(state.activeTab === 'users') return renderUsers();
+             if(state.activeTab === 'tools') return renderTools();
+             if(state.activeTab === 'calculator') return renderCalculator();
+             if(state.activeTab === 'sales') return renderSales();
+             if(state.activeTab === 'settings') return renderSettings();
+             return '';
+        }
+
+        function renderDashboard() {
+            const wStats = App.getWeeklyStats('payments');
+            const cStats = App.getCurrentStats('payments');
+            const gDebt = App.getGlobalDebt('cliente');
+            
+            let multiplier = 1;
+            if (state.estimationPeriod === 'semana') multiplier = 7;
+            if (state.estimationPeriod === 'mes') multiplier = 30;
+            
+            const est = {
+                cop: (wStats.desglose.cop / 7) * multiplier,
+                usdt: (wStats.desglose.usdt / 7) * multiplier,
+                mxn: (wStats.desglose.mxn / 7) * multiplier,
+            };
+            const estTotal = est.usdt + (est.cop / state.exchangeRates.cop) + (est.mxn / state.exchangeRates.mxn);
+
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 flex-shrink-0">
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
+                        <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Ganancias Semana</span><i data-lucide="trending-up" class="w-3 h-3 text-red-500"></i></div>
+                        <span class="text-lg font-black text-gray-900">$${App.formatCurrency(wStats.totalConvertido)}</span>
+                        <div class="mt-1 pt-1 border-t border-gray-50 flex flex-col gap-0.5 text-[8px] font-bold">
+                            <div class="flex justify-between text-gray-400"><span>COP:</span><span class="text-gray-900">$${App.formatCurrency(wStats.desglose.cop, 'cop')}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-gray-900">$${App.formatCurrency(wStats.desglose.usdt)}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-gray-900">$${App.formatCurrency(wStats.desglose.mxn)}</span></div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
+                        <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Todos los Clientes</span><i data-lucide="users" class="w-3 h-3 text-red-500"></i></div>
+                        <span class="text-lg font-black text-gray-900">${state.clients.length}</span>
+                        <p class="text-[9px] text-gray-400 mt-1">Registrados en sistema</p>
+                        <button onclick="App.setActiveTab('users')" class="mt-auto pt-2 text-[9px] font-bold text-red-600 text-left hover:text-red-700 flex items-center gap-1">Gestionar cartera <i data-lucide="arrow-right" class="w-3 h-3"></i></button>
+                    </div>
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
+                        <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Ingresos (Hoy)</span><i data-lucide="dollar-sign" class="w-3 h-3 text-green-500"></i></div>
+                        <span class="text-lg font-black text-green-600">$${App.formatCurrency(cStats.cobrados.total)}</span>
+                        <div class="mt-1 pt-1 border-t border-gray-50 flex flex-col gap-0.5 text-[8px] font-bold">
+                            <div class="flex justify-between text-gray-400"><span>COP:</span><span class="text-green-600">$${App.formatCurrency(cStats.cobrados.cop, 'cop')}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-green-600">$${App.formatCurrency(cStats.cobrados.usdt)}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-green-600">$${App.formatCurrency(cStats.cobrados.mxn)}</span></div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-900 rounded-xl p-3 shadow-md border border-gray-800 flex flex-col justify-between text-white">
+                        <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Por Cobrar</span><i data-lucide="alert-circle" class="w-3 h-3 text-red-400"></i></div>
+                        <span class="text-lg font-black text-red-400">$${App.formatCurrency(gDebt)}</span>
+                        <div class="mt-1 pt-1 border-t border-gray-800 flex flex-col gap-0.5 text-[8px] font-bold">
+                            <div class="flex justify-between text-gray-400"><span>COP:</span><span class="text-white">$${App.formatCurrency(gDebt * state.exchangeRates.cop, 'cop')}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-white">$${App.formatCurrency(gDebt)}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-white">$${App.formatCurrency(gDebt * state.exchangeRates.mxn)}</span></div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
+                        <div class="flex justify-between items-center text-gray-400 mb-1">
+                            <span class="text-[9px] font-black uppercase tracking-widest">Ganancias Est.</span>
+                            <div class="flex bg-gray-100 rounded p-0.5">
+                                <button onclick="App.setEstimationPeriod('dia')" class="px-1 py-0.5 text-[8px] font-bold rounded ${state.estimationPeriod === 'dia' ? 'bg-white shadow-sm' : 'text-gray-400'}">D</button>
+                                <button onclick="App.setEstimationPeriod('semana')" class="px-1 py-0.5 text-[8px] font-bold rounded ${state.estimationPeriod === 'semana' ? 'bg-white shadow-sm' : 'text-gray-400'}">S</button>
+                                <button onclick="App.setEstimationPeriod('mes')" class="px-1 py-0.5 text-[8px] font-bold rounded ${state.estimationPeriod === 'mes' ? 'bg-white shadow-sm' : 'text-gray-400'}">M</button>
+                            </div>
+                        </div>
+                        <span class="text-lg font-black text-gray-900">$${App.formatCurrency(estTotal)}</span>
+                        <div class="mt-1 pt-1 border-t border-gray-50 flex flex-col gap-0.5 text-[8px] font-bold">
+                            <div class="flex justify-between text-gray-400"><span>COP:</span><span class="text-gray-900">$${App.formatCurrency(est.cop, 'cop')}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-gray-900">$${App.formatCurrency(est.usdt)}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-gray-900">$${App.formatCurrency(est.mxn)}</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-2 flex items-center justify-between w-full max-w-sm mx-auto">
+                   <button onclick="App.changeDate(-1)" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors"><i data-lucide="chevron-left" class="w-4 h-4 text-gray-500"></i></button>
+                   <div class="flex flex-col items-center">
+                      <span class="text-xs font-bold text-gray-900 capitalize">${new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(state.activeDate + 'T00:00:00'))}</span>
+                      ${state.activeDate === new Date().toISOString().split('T')[0] ? '<span class="text-[8px] font-black uppercase text-red-500 tracking-widest">Hoy</span>' : ''}
+                   </div>
+                   <button onclick="App.changeDate(1)" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors"><i data-lucide="chevron-right" class="w-4 h-4 text-gray-500"></i></button>
+                </div>
+
+                <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden min-h-[400px]">
+                    <div class="bg-gray-50/80 border-b border-gray-100 p-3 flex justify-between items-center px-4">
+                      <h2 class="text-[10px] font-black text-gray-800 tracking-wide uppercase flex items-center gap-2"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Hoja de Trabajo: Ingresos</h2>
+                    </div>
+                    <div class="flex-1 overflow-auto custom-scrollbar">
+                        <!-- Añadido min-w-[900px] para forzar scroll horizontal en móviles y evitar aplastamiento -->
+                        <table class="w-full text-left border-collapse relative min-w-[900px] lg:min-w-full">
+                            <thead class="bg-white sticky top-0 z-10 shadow-sm">
+                                <tr>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-12 text-center border-b border-gray-100">Cant.</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-40 border-b border-gray-100">Cliente</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">Trabajo / Servicio</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-32 border-b border-gray-100 text-right">Monto</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-24 border-b border-gray-100 text-center">Cobrado</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-32 border-b border-gray-100 text-center">Método</th>
+                                    <th class="p-2 border-b border-gray-100 w-12"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-50">
+                                ${(state.paymentSheets[state.activeDate] || getEmptyRows()).map((row, index) => {
+                                    return `
+                                    <tr class="hover:bg-gray-50/50 transition-colors">
+                                        <td class="p-2 text-center"><span class="text-xs font-bold text-gray-500">${row.cant}</span></td>
+                                        <td class="p-2">
+                                            <select id="target-${index}" onchange="App.updateRow('payments', ${index}, 'targetId', this.value)" class="w-full bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-1 focus:ring-red-400 block p-1.5 outline-none font-medium">
+                                                <option value="">Seleccionar...</option>
+                                                ${state.clients.map(c => `<option value="${c.id}" ${row.targetId == c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+                                            </select>
+                                        </td>
+                                        <td class="p-2">
+                                            <select id="trabajo-${index}" onchange="App.updateRow('payments', ${index}, 'trabajo', this.value)" class="w-full bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-1 focus:ring-red-400 p-1.5 outline-none font-medium">
+                                                <option value="">Seleccionar Trabajo...</option>
+                                                ${state.salesData.products.map(p => `<option value="${p.name}" ${row.trabajo === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
+                                            </select>
+                                        </td>
+                                        <td class="p-2">
+                                            <div class="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2 focus-within:border-red-400 focus-within:bg-white transition-all">
+                                                <span class="text-gray-400 font-bold text-xs">$</span>
+                                                <input id="precio-${index}" type="text" value="${App.formatInputValue(row.precio, row.metodo || 'cop')}" oninput="App.updateRow('payments', ${index}, 'precio', this.value)" class="w-full bg-transparent outline-none text-right text-xs font-bold py-1.5 text-gray-800 ml-1" placeholder="0"/>
+                                            </div>
+                                        </td>
+                                        <td class="p-2">
+                                            <div class="flex bg-gray-100 rounded-lg p-0.5 w-max mx-auto border border-gray-200 shadow-inner">
+                                                <button onclick="App.updateRow('payments', ${index}, 'pagado', 'si')" class="px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${row.pagado === 'si' ? 'bg-green-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">SÍ</button>
+                                                <button onclick="App.updateRow('payments', ${index}, 'pagado', 'no')" class="px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${row.pagado === 'no' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">NO</button>
+                                            </div>
+                                        </td>
+                                        <td class="p-2">
+                                            <div class="flex gap-1 justify-center">
+                                                ${['cop', 'usdt', 'mxn'].map((currency) => `
+                                                    <button onclick="App.updateRow('payments', ${index}, 'metodo', '${currency}')" class="px-1.5 py-1 rounded-md text-[9px] font-black uppercase transition-all border ${row.metodo === currency ? 'bg-gray-900 text-white border-gray-900 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'}">${currency}</button>
+                                                `).join('')}
+                                            </div>
+                                        </td>
+                                        <td class="p-2 text-center w-8">
+                                            <button onclick="App.removeRow('payments', ${index})" class="text-gray-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                        </td>
+                                    </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center flex-wrap gap-2">
+                        <button onclick="App.addRow('payments')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir Fila
+                        </button>
+                        <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm w-full sm:w-auto justify-center ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
+                            ${state.saveStatus === 'saving' ? 'Guardando...' : state.saveStatus === 'saved' ? '<i data-lucide="check-circle" class="w-4 h-4"></i> ¡Guardado!' : '<i data-lucide="save" class="w-4 h-4"></i> Calcular y Guardar'}
+                        </button>
+                    </div>
+                </div>
+
+            </div>`;
+        }
+
+        // --- STREAMING_CHUNK:Renderizado de Proveedores ---
+        function renderSuppliers() {
+            const currentStats = App.getCurrentStats('suppliers');
+            const globalDebt = App.getGlobalDebt('proveedor');
+            
+            const formatD = (dateStr) => {
+                const opts = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+                return new Intl.DateTimeFormat('es-ES', opts).format(new Date(dateStr + 'T00:00:00'));
+            };
+
+            return `
+            <div class="flex flex-col gap-4 px-2 sm:px-0">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-shrink-0">
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
+                        <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Egresos Hoy</span><i data-lucide="arrow-down-right" class="w-3 h-3 text-red-500"></i></div>
+                        <span class="text-lg font-black text-gray-900">$${App.formatCurrency(currentStats.cobrados.total)}</span>
+                        <div class="mt-1 pt-1 border-t border-gray-50 flex flex-col gap-0.5 text-[8px] font-bold"><div class="flex justify-between text-gray-400"><span>COP:</span><span class="text-gray-900">$${App.formatCurrency(currentStats.cobrados.cop, 'cop')}</span></div><div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-gray-900">$${App.formatCurrency(currentStats.cobrados.usdt)}</span></div><div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-gray-900">$${App.formatCurrency(currentStats.cobrados.mxn)}</span></div></div>
+                    </div>
+                    
+                    <div class="bg-gray-900 rounded-xl p-3 shadow-md border border-gray-800 flex flex-col justify-between text-white">
+                        <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Deuda a Proveedores</span><i data-lucide="alert-circle" class="w-3 h-3 text-red-400"></i></div>
+                        <span class="text-lg font-black text-red-400">$${App.formatCurrency(globalDebt)}</span>
+                        <div class="mt-1 pt-1 border-t border-gray-800 flex flex-col gap-0.5 text-[8px] font-bold">
+                            <div class="flex justify-between text-gray-400"><span>COP:</span><span class="text-white">$${App.formatCurrency(globalDebt * state.exchangeRates.cop, 'cop')}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-white">$${App.formatCurrency(globalDebt)}</span></div>
+                            <div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-white">$${App.formatCurrency(globalDebt * state.exchangeRates.mxn)}</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-2 flex items-center justify-between w-full max-w-sm mx-auto">
+                   <button onclick="App.changeDate(-1)" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors"><i data-lucide="chevron-left" class="w-4 h-4 text-gray-500"></i></button>
+                   <div class="flex flex-col items-center">
+                      <span class="text-xs font-bold text-gray-900 capitalize">${formatD(state.activeDate)}</span>
+                      ${state.activeDate === new Date().toISOString().split('T')[0] ? '<span class="text-[8px] font-black uppercase text-red-500 tracking-widest">Hoy</span>' : ''}
+                   </div>
+                   <button onclick="App.changeDate(1)" class="p-1.5 hover:bg-gray-50 rounded-lg transition-colors"><i data-lucide="chevron-right" class="w-4 h-4 text-gray-500"></i></button>
+                </div>
+
+                <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden min-h-[400px]">
+                    <div class="bg-gray-50/80 border-b border-gray-100 p-3 flex justify-between items-center px-4">
+                      <h2 class="text-[10px] font-black text-gray-800 tracking-wide uppercase flex items-center gap-2"><i data-lucide="building-2" class="w-3.5 h-3.5"></i> Hoja de Trabajo: Egresos</h2>
+                    </div>
+                    <div class="flex-1 overflow-auto custom-scrollbar">
+                        <!-- Añadido min-w-[900px] para forzar scroll horizontal en móviles -->
+                        <table class="w-full text-left border-collapse min-w-[900px] lg:min-w-full">
+                            <thead class="bg-white sticky top-0 z-10 shadow-sm">
+                                <tr>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-12 text-center border-b border-gray-100">Cant.</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-40 border-b border-gray-100">Proveedor</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">Concepto</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-32 border-b border-gray-100 text-right">Monto</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-24 border-b border-gray-100 text-center">Pagado</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-32 border-b border-gray-100 text-center">Método</th>
+                                    <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-12 border-b border-gray-100 text-center"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-50">
+                                ${(state.supplierSheets[state.activeDate] || getEmptyRows()).map((row, index) => `
+                                <tr class="hover:bg-gray-50/50 transition-colors">
+                                    <td class="p-2 text-center"><span class="text-xs font-bold text-gray-500">${row.cant}</span></td>
+                                    <td class="p-2">
+                                        <select id="sup-target-${index}" onchange="App.updateRow('suppliers', ${index}, 'targetId', this.value)" class="w-full bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-1 focus:ring-red-400 block p-1.5 outline-none font-medium">
+                                            <option value="">Seleccionar...</option>
+                                            ${state.suppliers.map(s => `<option value="${s.id}" ${row.targetId == s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                                        </select>
+                                    </td>
+                                    <td class="p-2">
+                                        <select id="sup-trabajo-${index}" onchange="App.updateRow('suppliers', ${index}, 'trabajo', this.value)" class="w-full bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-1 focus:ring-red-400 block p-1.5 outline-none font-medium">
+                                            <option value="">Seleccionar Concepto...</option>
+                                            ${state.salesData.products.map(p => `<option value="${p.name}" ${row.trabajo === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
+                                        </select>
+                                    </td>
+                                    <td class="p-2">
+                                        <div class="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2 focus-within:border-red-400 focus-within:bg-white transition-all">
+                                            <span class="text-gray-400 font-bold text-xs">$</span>
+                                            <input id="sup-precio-${index}" type="text" value="${App.formatInputValue(row.precio, row.metodo || 'cop')}" oninput="App.updateRow('suppliers', ${index}, 'precio', this.value)" class="w-full bg-transparent outline-none text-right text-xs font-bold py-1.5 text-gray-800 ml-1" placeholder="0"/>
+                                        </div>
+                                    </td>
+                                    <td class="p-2">
+                                        <div class="flex bg-gray-100 rounded-lg p-0.5 w-max mx-auto border border-gray-200 shadow-inner">
+                                            <button onclick="App.updateRow('suppliers', ${index}, 'pagado', 'si')" class="px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${row.pagado === 'si' ? 'bg-green-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">SÍ</button>
+                                            <button onclick="App.updateRow('suppliers', ${index}, 'pagado', 'no')" class="px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${row.pagado === 'no' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">NO</button>
+                                        </div>
+                                    </td>
+                                    <td class="p-2">
+                                        <div class="flex gap-1 justify-center">
+                                            ${['cop', 'usdt', 'mxn'].map((currency) => `
+                                                <button onclick="App.updateRow('suppliers', ${index}, 'metodo', '${currency}')" class="px-1.5 py-1 rounded-md text-[9px] font-black uppercase transition-all border ${row.metodo === currency ? 'bg-gray-900 text-white border-gray-900 shadow-sm' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'}">${currency}</button>
+                                            `).join('')}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 text-center w-8">
+                                        <button onclick="App.removeRow('suppliers', ${index})" class="text-gray-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                    </td>
+                                </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center flex-wrap gap-2">
+                        <button onclick="App.addRow('suppliers')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir Fila
+                        </button>
+                        <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm w-full sm:w-auto justify-center ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
+                            ${state.saveStatus === 'saving' ? 'Guardando...' : state.saveStatus === 'saved' ? '<i data-lucide="check-circle" class="w-4 h-4"></i> ¡Guardado!' : '<i data-lucide="save" class="w-4 h-4"></i> Calcular y Guardar'}
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- STREAMING_CHUNK:Renderizado de Membresías y Usuarios ---
+        function renderMemberships() {
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-sm"><i data-lucide="credit-card" class="w-5 h-5"></i></div>
+                    <div><h2 class="text-xl font-bold text-gray-900">Suscripciones Activas</h2><p class="text-xs text-gray-500 font-medium">Control de pagos recurrentes</p></div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1">
+                    <div class="lg:col-span-1 bg-white rounded-2xl p-5 shadow-sm border border-gray-100 h-max">
+                        <h3 class="font-black text-gray-900 text-xs uppercase tracking-wide mb-4 border-b border-gray-100 pb-2 flex items-center gap-1.5"><i data-lucide="plus" class="w-3.5 h-3.5 text-red-600"></i> Nueva Suscripción</h3>
+                        
+                        <form onsubmit="App.addMembership(event)" class="flex flex-col gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Cliente</label>
+                                <select name="clientId" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-xs outline-none focus:border-red-400">
+                                    <option value="">Seleccionar cliente...</option>
+                                    ${state.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Nombre del Plan</label>
+                                <input type="text" name="plan" required placeholder="Ej: Mantenimiento Mensual" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-xs outline-none focus:border-red-400"/>
+                            </div>
+                            <div class="flex gap-2">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Monto</label>
+                                    <input type="number" name="amount" required placeholder="0.00" step="0.01" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-xs outline-none focus:border-red-400"/>
+                                </div>
+                                <div class="w-20">
+                                    <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Moneda</label>
+                                    <select name="currency" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-xs outline-none focus:border-red-400 uppercase">
+                                        <option value="usdt">USDT</option>
+                                        <option value="cop">COP</option>
+                                        <option value="mxn">MXN</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Próximo Cobro</label>
+                                <input type="date" name="nextBilling" required class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2 text-xs outline-none focus:border-red-400 text-gray-600"/>
+                            </div>
+                            <button type="submit" class="mt-2 w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl transition-colors shadow-sm text-xs">Registrar Suscripción</button>
+                        </form>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col">
+                        <h3 class="font-black text-gray-900 text-xs uppercase tracking-wide mb-4 border-b border-gray-100 pb-2 flex items-center justify-between">
+                            <span>Suscripciones Registradas</span>
+                            <span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md text-[10px]">${state.memberships.length}</span>
+                        </h3>
+                        
+                        <div class="flex-1 overflow-auto custom-scrollbar pr-2">
+                            ${state.memberships.length === 0 ? `
+                                <div class="h-full flex flex-col items-center justify-center text-gray-400 py-10">
+                                    <i data-lucide="credit-card" class="w-10 h-10 mb-2 opacity-20"></i>
+                                    <p class="text-xs font-medium">No hay suscripciones activas</p>
+                                </div>
+                            ` : `
+                                <div class="grid grid-cols-1 gap-2">
+                                    ${state.memberships.map(mem => {
+                                        const client = state.clients.find(c => c.id === mem.clientId);
+                                        const isPastDue = new Date(mem.nextBilling) < new Date();
+                                        return `
+                                        <div class="border border-gray-100 rounded-xl p-3 hover:bg-gray-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 group shadow-sm">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center font-black text-lg shadow-sm border ${isPastDue ? 'bg-red-50 text-red-600 border-red-100' : 'bg-gray-50 text-gray-600 border-gray-200'}">
+                                                    ${client ? client.name.charAt(0) : '?'}
+                                                </div>
+                                                <div>
+                                                    <h4 class="font-bold text-sm text-gray-900 truncate max-w-[150px] sm:max-w-xs">${client ? client.name : 'Cliente Eliminado'}</h4>
+                                                    <p class="text-[10px] text-gray-500 font-bold uppercase truncate">${mem.plan}</p>
+                                                    <div class="flex items-center gap-1.5 mt-1">
+                                                        <span class="text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${isPastDue ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${isPastDue ? 'Vencida' : 'Al día'}</span>
+                                                        <span class="text-[10px] text-gray-400 font-bold flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> ${mem.nextBilling}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-0 pt-2 sm:pt-0 border-gray-100">
+                                                <div class="flex flex-col sm:items-end">
+                                                    <span class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Monto</span>
+                                                    <span class="text-sm font-black text-gray-900">$${App.formatCurrency(mem.amount, mem.currency)} <span class="text-[9px] text-gray-500">${mem.currency.toUpperCase()}</span></span>
+                                                </div>
+                                                <button onclick="App.deleteMembership(${mem.id})" class="w-7 h-7 flex-shrink-0 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                            </div>
+                                        </div>`;
+                                    }).join('')}
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderUsers() {
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="users" class="w-5 h-5"></i></div>
+                <div><h2 class="text-xl font-bold text-gray-900">Directorio</h2><p class="text-xs text-gray-500 font-medium">Gestión de entidades</p></div></div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 pb-4">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden max-h-[50vh] lg:max-h-full">
+                        <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs">Clientes</h3>
+                            <button onclick="App.openEntityModal('cliente')" class="text-[10px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded flex items-center gap-1 hover:bg-red-100">+ Nuevo</button>
+                        </div>
+                        <div class="flex-1 overflow-auto p-2 custom-scrollbar">
+                            ${state.clients.map(c => `
+                                <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl group border border-transparent hover:border-gray-100">
+                                    <div class="truncate pr-2"><p class="text-xs font-bold text-gray-900 truncate">${c.name}</p><p class="text-[9px] text-gray-400 uppercase">${c.currency}</p></div>
+                                    <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                                        <span class="text-[10px] font-bold ${c.debt>0?'text-red-500':'text-green-500'}">${c.debt>0?`Deuda: $${App.formatCurrency(c.debt, c.currency)}`:'Al día'}</span>
+                                        ${c.debt > 0 ? `<button id="invoice-btn-${c.id}" onclick="App.generateInvoiceAndSend(${c.id})" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>` : ''}
+                                        <button onclick="App.deleteEntity('cliente', ${c.id})" class="text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden max-h-[50vh] lg:max-h-full">
+                        <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs">Proveedores</h3>
+                            <button onclick="App.openEntityModal('proveedor')" class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2.5 py-1.5 rounded flex items-center gap-1 hover:bg-gray-200">+ Nuevo</button>
+                        </div>
+                        <div class="flex-1 overflow-auto p-2 custom-scrollbar">
+                            ${state.suppliers.map(s => `
+                                <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl group border border-transparent hover:border-gray-100">
+                                    <div class="truncate pr-2"><p class="text-xs font-bold text-gray-900 truncate">${s.name}</p><p class="text-[9px] text-gray-400 uppercase">${s.currency}</p></div>
+                                    <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                                        <span class="text-[10px] font-bold ${s.debt>0?'text-red-500':'text-green-500'}">${s.debt>0?`Por pagar: $${App.formatCurrency(s.debt, s.currency)}`:'Al día'}</span>
+                                        ${s.debt > 0 ? `<button id="invoice-btn-sup-${s.id}" onclick="App.generateInvoiceAndSend(${s.id}, 'proveedor')" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>` : ''}
+                                        <button onclick="App.deleteEntity('proveedor', ${s.id})" class="text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- STREAMING_CHUNK:Renderizado de Herramientas y Calculadora ---
+        function renderTools() {
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="key" class="w-5 h-5"></i></div>
+                <div><h2 class="text-xl font-bold text-gray-900">Herramientas & Keys</h2></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                        <h3 class="font-bold text-gray-800 text-sm mb-4">Generador Contraseñas (11 Letras)</h3>
+                        <div class="bg-gray-50 rounded-xl p-6 text-center mb-4 min-h-[100px] flex flex-col items-center justify-center border border-gray-200 w-full overflow-hidden">
+                            <span class="text-[9px] text-gray-500 font-bold mb-2 uppercase tracking-widest">CONTRASEÑA GENERADA</span>
+                            <span class="text-xl sm:text-2xl font-mono text-gray-900 font-black truncate w-full">${state.generatedPassword || '---'}</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="App.generateRandomPassword()" class="flex-1 bg-gray-900 text-white text-xs font-bold py-3 rounded-xl hover:bg-gray-800">Generar Nueva</button>
+                            <button onclick="App.copyPassword()" class="w-12 bg-gray-100 text-gray-600 rounded-xl flex items-center justify-center hover:bg-gray-200"><i data-lucide="copy" class="w-4 h-4"></i></button>
+                        </div>
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            ${state.passwordHistory.map(p => `<span class="text-[9px] bg-gray-100 text-gray-500 px-2 py-1 rounded-md font-mono">${p}</span>`).join('')}
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-gray-800 text-sm">Buscador de Keys</h3>
+                            <span class="text-[9px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded-md">Total: ${state.keysStore.length}</span>
+                        </div>
+                        <div class="flex gap-2 mb-4">
+                            <input id="key-search-input" type="text" value="${state.keySearchQuery}" oninput="App.setKeySearchQuery(this.value)" placeholder="INGRESAR SN..." class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-gray-400 font-mono uppercase w-full"/>
+                            <button onclick="App.searchKey()" class="bg-gray-900 text-white px-3 sm:px-4 rounded-xl text-xs font-bold hover:bg-gray-800 flex items-center gap-1"><i data-lucide="search" class="w-3 h-3"></i> <span class="hidden sm:inline">Buscar</span></button>
+                        </div>
+                        <div class="flex-1 bg-gray-50 rounded-xl p-4 flex flex-col items-center justify-center border border-gray-200 text-center min-h-[150px] overflow-hidden">
+                            ${state.isSearchingKey ? `<i data-lucide="loader" class="w-6 h-6 text-gray-400 animate-spin mb-2"></i><p class="text-[10px] text-gray-500 font-bold uppercase">Desencriptando base de datos...</p>` : 
+                              state.keySearchResult ? `<span class="text-[9px] text-gray-400 font-bold mb-1 uppercase tracking-widest">KEY CORRESPONDIENTE</span><span class="text-lg sm:text-xl font-mono font-black text-gray-900 truncate w-full ${state.keySearchResult==='NO ENCONTRADO'?'text-red-500':''}">${state.keySearchResult}</span>` : 
+                              `<i data-lucide="shield-check" class="w-8 h-8 text-gray-300 mb-2"></i><p class="text-[10px] text-gray-400 font-medium">Ingrese un SN para buscar su Key segura.</p>`}
+                        </div>
+                        <form onsubmit="App.addKey(event)" class="mt-4 flex flex-col sm:flex-row gap-2 pt-4 border-t border-gray-100">
+                             <input type="text" name="sn" required placeholder="Nuevo SN..." class="w-full sm:w-1/2 border border-gray-200 rounded-lg px-2 py-2 sm:py-1.5 text-[10px] font-mono outline-none uppercase"/>
+                             <div class="flex gap-2 w-full">
+                                <input type="text" name="key" required placeholder="Nueva Key..." class="flex-1 border border-gray-200 rounded-lg px-2 py-2 sm:py-1.5 text-[10px] font-mono outline-none uppercase"/>
+                                <button type="submit" class="bg-gray-100 text-gray-600 px-3 rounded-lg hover:bg-gray-200 py-2 sm:py-0"><i data-lucide="plus" class="w-3.5 h-3.5"></i></button>
+                             </div>
+                        </form>
+                    </div>
+                </div>
+            </div>`; 
+        }
+
+        function renderCalculator() {
+            const vBase = state.calcState.displayBase;
+            const bVal = parseFloat(state.calcState.baseValue) || 0;
+            const rates = state.exchangeRates;
+            
+            let valUSDT=0, valCOP=0, valMXN=0;
+            if(vBase === 'USDT') { valUSDT=bVal; valCOP=bVal*rates.cop; valMXN=bVal*rates.mxn; }
+            else if(vBase === 'COP') { valCOP=bVal; valUSDT=bVal/rates.cop; valMXN=valUSDT*rates.mxn; }
+            else if(vBase === 'MXN') { valMXN=bVal; valUSDT=bVal/rates.mxn; valCOP=valUSDT*rates.cop; }
+
+            const fNum = (n,c) => new Intl.NumberFormat('en-US',{minimumFractionDigits:c==='USDT'?2:0, maximumFractionDigits:c==='USDT'?2:0}).format(n||0);
+            const activeCls = "border-red-500 shadow-sm"; 
+            const inactiveCls = "border-gray-100 bg-white hover:border-gray-200 cursor-pointer";
+
+            return `
+            <div class="flex flex-col h-full w-full max-w-4xl mx-auto gap-4 px-2 sm:px-0">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0 gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="calculator" class="w-5 h-5"></i></div>
+                        <div><h2 class="text-xl font-bold text-gray-900 leading-tight">Calculadora de Tasas</h2><p class="text-[10px] text-gray-500 font-medium">Conversión en tiempo real</p></div>
+                    </div>
+                    <div class="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 w-full sm:w-auto justify-center">
+                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tasa COP: <span class="text-gray-900">$${rates.cop}</span></span>
+                        <div class="w-px h-4 bg-gray-300"></div>
+                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tasa MXN: <span class="text-gray-900">$${rates.mxn}</span></span>
+                    </div>
+                </div>
+
+                <div class="flex flex-col lg:flex-row gap-4 flex-1">
+                    <div class="flex-1 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center gap-3 sm:gap-4 overflow-y-auto custom-scrollbar">
+                        ${['USDT','COP','MXN'].map(curr => {
+                            const val = curr==='USDT'?valUSDT:curr==='COP'?valCOP:valMXN;
+                            const title = curr==='USDT'?'USDT (TETHER)':curr==='COP'?'PESOS COLOMBIANOS (COP)':'PESOS MEXICANOS (MXN)';
+                            return `
+                            <div onclick="App.setCalcBase('${curr}')" class="p-4 rounded-xl border-2 transition-all flex justify-between items-center relative ${vBase===curr ? activeCls : inactiveCls}">
+                                <div class="flex flex-col gap-1 w-full overflow-hidden">
+                                    <span class="text-[10px] font-black uppercase ${vBase===curr?'text-red-500':'text-gray-400'} tracking-widest truncate">${title} ${vBase===curr?'(BASE)':''}</span>
+                                    <span class="text-2xl sm:text-3xl font-black text-gray-900 leading-none truncate w-[85%]">$${fNum(val,curr)}</span>
+                                </div>
+                                ${vBase===curr ? `<button onclick="event.stopPropagation(); App.copyCalc('${val}')" class="p-2 text-gray-400 hover:text-gray-900 absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 bg-white rounded-md hover:bg-gray-100 transition-colors"><i data-lucide="copy" class="w-4 h-4"></i></button>` : ''}
+                            </div>`;
+                        }).join('')}
+                    </div>
+
+                    <div class="w-full lg:w-[400px] bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                        <div class="grid grid-cols-4 gap-2 sm:gap-3 h-[300px] sm:h-full sm:max-h-[400px]">
+                            ${['7','8','9'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">${n}</button>`).join('')}
+                            <button onclick="App.calcInput('DEL')" class="bg-red-50 hover:bg-red-100 border border-red-100 text-red-500 flex justify-center items-center rounded-xl transition-colors active:bg-red-200"><i data-lucide="delete" class="w-5 h-5"></i></button>
+                            
+                            ${['4','5','6'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">${n}</button>`).join('')}
+                            <button onclick="App.calcInput('C')" class="bg-gray-900 hover:bg-gray-800 text-white font-black text-xl sm:text-2xl rounded-xl transition-colors shadow-sm row-span-2 active:bg-gray-700">C</button>
+                            
+                            ${['1','2','3'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">${n}</button>`).join('')}
+                            
+                            <button onclick="App.calcInput('0')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors col-span-2 active:bg-gray-200">0</button>
+                            <button onclick="App.calcInput('.')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">.</button>
+                            <button onclick="App.calcInput('00')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">00</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- STREAMING_CHUNK:Renderizado de Ventas, Ajustes y Modales ---
+        function renderSales() {
+            const historyCostoTotal = state.salesData.history.reduce((a,b)=>a+b.cost,0);
+            const historyVentaTotal = state.salesData.history.reduce((a,b)=>a+b.price,0);
+            const capitalActual = state.salesData.initialInvestment - historyCostoTotal + historyVentaTotal;
+            const gananciaNeta = historyVentaTotal - historyCostoTotal;
+
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-sm flex-shrink-0"><i data-lucide="shopping-bag" class="w-5 h-5"></i></div>
+                    <div><h2 class="text-xl font-bold text-gray-900 truncate">Gestión de Ventas</h2><p class="text-xs text-gray-500 font-medium truncate">Control de capital e inventario</p></div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 flex-shrink-0">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 flex flex-col justify-center">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1"><i data-lucide="wallet" class="w-3 h-3 text-red-500"></i> Inversión Semanal Base</span>
+                        <div class="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 focus-within:border-red-500 transition-colors w-full">
+                            <span class="text-gray-500 font-bold text-lg">$</span>
+                            <input id="sales-inv-input" type="number" value="${state.salesData.initialInvestment}" onchange="App.setSalesInvestment(this.value)" class="bg-transparent px-2 py-2 text-xl sm:text-2xl font-black text-gray-900 outline-none w-full" placeholder="0"/>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gray-900 rounded-2xl shadow-sm border border-gray-800 p-4 sm:p-5 flex flex-col justify-center">
+                         <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1"><i data-lucide="database" class="w-3 h-3"></i> Capital Actual Disponible</span>
+                         <span class="text-3xl sm:text-4xl font-black text-white">$${App.formatCurrency(capitalActual)}</span>
+                    </div>
+
+                    <div class="bg-green-50 rounded-2xl shadow-sm border border-green-200 p-4 sm:p-5 flex flex-col justify-center">
+                         <span class="text-[10px] font-black uppercase tracking-widest text-green-700 mb-2 flex items-center gap-1"><i data-lucide="trending-up" class="w-3 h-3"></i> Ganancia Neta Generada</span>
+                         <span class="text-3xl sm:text-4xl font-black text-green-600">$${App.formatCurrency(gananciaNeta)}</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-hidden pb-4">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden min-h-[300px]">
+                        <div class="p-4 sm:p-5 border-b border-gray-100 bg-gray-50/50">
+                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs mb-4 flex items-center gap-1"><i data-lucide="tags" class="w-3.5 h-3.5 text-red-500"></i> Catálogo Rápido</h3>
+                            
+                            <div class="relative w-full mb-4">
+                                <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2"></i>
+                                <input type="text" placeholder="Buscar producto/servicio..." value="${state.salesSearchQuery}" oninput="App.setSalesSearchQuery(this.value)" class="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-xs font-medium outline-none focus:border-red-400 shadow-sm transition-colors"/>
+                            </div>
+
+                            <form onsubmit="App.addSalesProduct(event)" class="flex flex-col sm:flex-row gap-2 bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
+                                <input type="text" name="name" required placeholder="Producto/Servicio" class="flex-1 bg-gray-50 sm:bg-transparent rounded sm:rounded-none border-none text-[11px] font-bold outline-none px-2 py-2 sm:py-1.5 uppercase w-full"/>
+                                <div class="hidden sm:block w-px h-6 bg-gray-200 my-auto"></div>
+                                <div class="flex gap-2 w-full sm:w-auto">
+                                    <input type="number" name="cost" required placeholder="Costo $" step="0.01" class="flex-1 sm:w-20 bg-gray-50 sm:bg-transparent rounded sm:rounded-none border-none text-[11px] font-bold outline-none px-2 py-2 sm:py-1.5 text-red-500"/>
+                                    <div class="hidden sm:block w-px h-6 bg-gray-200 my-auto"></div>
+                                    <input type="number" name="price" required placeholder="Venta $" step="0.01" class="flex-1 sm:w-20 bg-gray-50 sm:bg-transparent rounded sm:rounded-none border-none text-[11px] font-bold outline-none px-2 py-2 sm:py-1.5 text-green-600"/>
+                                    <button type="submit" class="bg-red-600 text-white rounded-lg px-3 py-2 sm:py-1.5 hover:bg-red-700 transition-colors shadow-sm"><i data-lucide="plus" class="w-4 h-4"></i></button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="flex-1 overflow-auto p-4 flex flex-col gap-3 custom-scrollbar">
+                            ${(() => {
+                                const filteredProducts = state.salesData.products.filter(p => p.name.toLowerCase().includes(state.salesSearchQuery.toLowerCase()));
+                                if(filteredProducts.length === 0) return '<div class="text-center text-xs font-medium text-gray-400 py-10">Sin resultados</div>';
+                                return filteredProducts.map(p => `
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white border border-gray-100 rounded-xl gap-3 hover:border-gray-200 transition-all shadow-sm group">
+                                    <div class="w-full sm:w-auto">
+                                        <h4 class="text-sm font-black text-gray-900">${p.name}</h4>
+                                        <div class="flex gap-3 text-[10px] font-bold mt-1">
+                                            <span class="text-gray-500">Costo: <span class="text-red-500">$${p.cost}</span></span>
+                                            <span class="text-gray-500">Venta: <span class="text-green-600">$${p.price}</span></span>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 w-full sm:w-auto opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity mt-2 sm:mt-0">
+                                        <select id="sales-client-${p.id}" class="flex-1 sm:flex-none bg-gray-50 border border-gray-200 text-gray-700 text-[10px] rounded-lg focus:ring-1 focus:ring-red-400 p-2 sm:p-1.5 outline-none font-medium">
+                                            <option value="">A tabla...</option>
+                                            ${state.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                                        </select>
+                                        <button onclick="App.deleteSalesProduct(${p.id})" class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors bg-gray-50 sm:bg-transparent border border-gray-200 sm:border-transparent"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                        <button onclick="App.recordSale(${p.id})" class="bg-gray-900 text-white text-[10px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 hover:bg-gray-800 transition-colors shadow-sm"><i data-lucide="tag" class="w-3.5 h-3.5"></i> VENDER</button>
+                                    </div>
+                                </div>
+                                `).join('');
+                            })()}
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden min-h-[300px]">
+                        <div class="p-4 sm:p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs flex items-center gap-1"><i data-lucide="history" class="w-3.5 h-3.5 text-gray-400"></i> Registro Ventas</h3>
+                            <span class="text-[9px] font-bold bg-white border border-gray-200 shadow-sm px-2.5 py-1 rounded-md text-green-600">TOTAL: ${state.salesData.history.length}</span>
+                        </div>
+                        
+                        <div class="flex-1 overflow-auto p-4 flex flex-col gap-3 custom-scrollbar">
+                            ${state.salesData.history.map(h => `
+                                <div class="flex flex-col p-4 bg-white border border-gray-100 rounded-xl shadow-sm hover:border-gray-200 transition-colors gap-3 group relative">
+                                    <button onclick="App.deleteSaleRecord(${h.id})" class="absolute top-3 right-3 text-gray-300 hover:text-red-500 hover:bg-red-50 p-1 rounded-md transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                                    
+                                    <div class="pr-6">
+                                        <p class="font-black text-gray-900 text-sm truncate">${h.productName}</p>
+                                        <p class="text-[9px] font-medium text-gray-400 mt-0.5"><i data-lucide="clock" class="w-3 h-3 inline pb-0.5"></i> ${h.date}</p>
+                                    </div>
+                                    
+                                    <div class="flex flex-col gap-2 border-t border-gray-50 pt-3">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[9px] font-black text-gray-400 tracking-wider w-12">ESTADO:</span>
+                                            <div class="flex bg-gray-100 rounded-lg p-0.5 shadow-inner border border-gray-200">
+                                                <button onclick="App.updateSaleHistory(${h.id}, 'pagado', 'si')" class="px-2 py-0.5 rounded-md text-[9px] font-bold transition-all ${h.pagado !== 'no' ? 'bg-green-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">PAGADA</button>
+                                                <button onclick="App.updateSaleHistory(${h.id}, 'pagado', 'no')" class="px-2 py-0.5 rounded-md text-[9px] font-bold transition-all ${h.pagado === 'no' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">PENDIENTE</button>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-[9px] font-black text-gray-400 w-12 tracking-wider">COSTO:</span>
+                                                <div class="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2 focus-within:border-gray-400 transition-colors w-full sm:w-auto">
+                                                    <span class="text-red-400 font-bold text-[10px]">- $</span>
+                                                    <input type="number" value="${h.cost}" onchange="App.updateSaleHistory(${h.id}, 'cost', this.value)" class="w-full sm:w-14 bg-transparent outline-none text-xs font-bold text-gray-700 py-1 text-right" step="0.01"/>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-[9px] font-black text-gray-400 w-12 tracking-wider">VENTA:</span>
+                                                <div class="flex items-center bg-green-50/50 border border-green-200 rounded-lg px-2 focus-within:border-green-400 transition-colors w-full sm:w-auto">
+                                                    <span class="text-green-500 font-bold text-[10px]">+ $</span>
+                                                    <input type="number" value="${h.price}" onchange="App.updateSaleHistory(${h.id}, 'price', this.value)" class="w-full sm:w-14 bg-transparent outline-none text-xs font-bold text-green-700 py-1 text-right" step="0.01"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('') || `
+                                <div class="h-full flex flex-col items-center justify-center text-gray-400 py-10">
+                                    <i data-lucide="inbox" class="w-10 h-10 mb-2 opacity-20"></i>
+                                    <p class="text-xs font-medium">Sin registros de ventas aún.</p>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderSettings() {
+            return `
+            <div class="flex flex-col gap-4 h-full max-w-2xl mx-auto w-full px-2 sm:px-0">
+                <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-gray-200 text-gray-700 flex items-center justify-center"><i data-lucide="settings" class="w-5 h-5"></i></div>
+                <div><h2 class="text-xl font-bold text-gray-900">Ajustes & Backups</h2></div></div>
+                
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+                    <h3 class="font-bold text-sm mb-4 flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-blue-500"></i> Nube y Telegram</h3>
+                    
+                    <button onclick="if(window.FirebaseDB) { window.FirebaseDB.save(state); this.innerHTML='<i data-lucide=\\'check\\' class=\\'w-4 h-4\\'></i> ¡Guardado!'; setTimeout(()=> { this.innerHTML='<i data-lucide=\\'cloud-upload\\' class=\\'w-4 h-4\\'></i> Forzar Sincronización'; lucide.createIcons();}, 2000); lucide.createIcons(); } else { alert('Aún no has pegado las claves de Firebase en el código'); }" class="w-full bg-blue-50 text-blue-600 border border-blue-200 text-xs font-bold py-2.5 rounded-lg mb-4 hover:bg-blue-100 flex justify-center items-center gap-2 transition-colors">
+                        <i data-lucide="cloud-upload" class="w-4 h-4"></i> Forzar Sincronización
+                    </button>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Archivo a Telegram</button>
+                        <p class="text-[9px] text-gray-400 text-center mt-1">El zoom manual se desactiva automáticamente en teléfonos.</p>
+                        <button onclick="App.setZoom(1)" class="mt-2 text-[10px] font-bold text-red-600 hover:underline mx-auto">Restablecer por defecto (100%)</button>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <h3 class="font-bold text-sm mb-4">Tasas de Cambio (1 USDT)</h3>
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+                    <h3 class="font-bold text-sm mb-4 flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-blue-500"></i> Backups y Telegram</h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Todo</button>
+                        <button onclick="App.exportData('payments')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Ingresos</button>
+                        <button onclick="App.exportData('suppliers')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Egresos</button>
+                        <button onclick="App.exportData('keys')" class="col-span-2 sm:col-span-1 bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Keys Store</button>
+                    </div>
+                    <div class="relative w-full border-2 border-dashed border-gray-200 rounded-xl p-6 sm:p-4 text-center hover:bg-gray-50 transition-colors">
+                        <input type="file" accept=".json" onchange="App.restoreBackup(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
+                        <i data-lucide="upload-cloud" class="w-8 h-8 sm:w-6 sm:h-6 text-gray-400 mx-auto mb-2 sm:mb-1"></i>
+                        <span class="text-[11px] font-bold text-gray-500">Restaurar JSON (Click o Arrastrar)</span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderEntityModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <form onsubmit="App.saveEntity(event)" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                    <h3 class="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight">Nuevo ${state.entityModal.type}</h3>
+                    <div class="flex flex-col gap-3">
+                        <div><label class="text-[10px] font-bold text-gray-400 uppercase">Nombre</label><input type="text" name="name" required class="w-full border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400"/></div>
+                        <div><label class="text-[10px] font-bold text-gray-400 uppercase">Moneda Base</label><select name="currency" class="w-full border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400"><option value="cop">COP</option><option value="usdt">USDT</option><option value="mxn">MXN</option></select></div>
+                    </div>
+                    <div class="flex gap-2 mt-6">
+                        <button type="button" onclick="App.closeEntityModal()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">Cancelar</button>
+                        <button type="submit" class="flex-1 py-3 sm:py-2 bg-gray-900 text-white rounded-lg text-xs font-bold">Guardar</button>
+                    </div>
+                </form>
+            </div>`;
+        }
+
+        function renderNextDayModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl flex flex-col items-center text-center">
+                    <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-3"><i data-lucide="check-circle" class="w-6 h-6"></i></div>
+                    <h3 class="text-sm font-bold text-gray-900 mb-2">¡Guardado!</h3>
+                    <p class="text-[10px] text-gray-500 mb-4">¿Pasar al día siguiente?</p>
+                    <div class="flex gap-2 w-full">
+                        <button onclick="state.showNextDayModal=false; render()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">No</button>
+                        <button onclick="App.changeDate(1); state.showNextDayModal=false" class="flex-1 py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold">Sí, Avanzar</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- STREAMING_CHUNK:Inicialización ---
+        window.onload = () => { 
+            App.checkResponsive(); // Verificación inicial
+            
+            // Si Firebase está configurado, descargamos el estado al iniciar la app
+            window.addEventListener('firebase-ready', async () => {
+                if (window.FirebaseDB) {
+                    const cloudState = await window.FirebaseDB.load();
+                    if (cloudState) {
+                        state = { ...state, ...cloudState }; // Fusionamos el estado de la nube
+                        render();
+                    }
+                }
+            });
+            
+            render(); 
+        };
+    </script>
+</body>
+</html>
