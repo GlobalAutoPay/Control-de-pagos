@@ -35,9 +35,8 @@
     <!-- Firebase SDKs y Configuración en Tiempo Real -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Inicializar Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
             authDomain: "yettadashboard.firebaseapp.com",
@@ -55,9 +54,9 @@
             save: async (newState) => {
                 try {
                     await setDoc(docRef, newState);
-                    console.log("Datos guardados en Firestore exitosamente.");
+                    console.log("Sincronizado con Firestore con éxito.");
                 } catch (e) {
-                    console.error("Error al guardar en Firestore:", e);
+                    console.error("Error al sincronizar con Firestore:", e);
                     throw e;
                 }
             },
@@ -65,9 +64,11 @@
                 return onSnapshot(docRef, (docSnap) => {
                     if (docSnap.exists()) {
                         callback(docSnap.data());
+                    } else {
+                        callback(null);
                     }
                 }, (error) => {
-                    console.error("Error en tiempo real:", error);
+                    console.error("Error en tiempo real de Firebase:", error);
                     window.dispatchEvent(new Event('firebase-error'));
                 });
             }
@@ -84,13 +85,45 @@
             id: Date.now() + i, cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop'
         }));
 
+        let isRemoteUpdate = false;
+        let saveTimeout = null;
+
+        function saveState() {
+            if (isRemoteUpdate) return;
+            if (saveTimeout) clearTimeout(saveTimeout);
+            
+            saveTimeout = setTimeout(async () => {
+                try {
+                    state.saveStatus = 'saving';
+                    render();
+                    
+                    const cleanState = { ...state };
+                    delete cleanState.showLogsModal;
+                    delete cleanState.showNextDayModal;
+                    delete cleanState.saveStatus;
+                    
+                    if(window.FirebaseDB) {
+                        await window.FirebaseDB.save(cleanState);
+                    }
+                    
+                    state.saveStatus = 'saved';
+                    render();
+                    setTimeout(() => { state.saveStatus = null; render(); }, 800);
+                } catch (e) {
+                    console.error("Error al guardar automático:", e);
+                    state.saveStatus = null;
+                    render();
+                }
+            }, 400);
+        }
+
         let state = {
             zoomLevel: savedZoom,
             activeTab: 'dashboard',
             activeDate: new Date().toISOString().split('T')[0],
             showNextDayModal: false,
             showLogsModal: false,
-            firebaseStatus: 'yellow', // yellow: connecting, green: connected, red: error
+            firebaseStatus: 'yellow',
             logs: [],
             estimationPeriod: 'dia', 
             saveStatus: null, 
@@ -136,14 +169,12 @@
 
         const App = {};
 
-        // Sistema de Logs personalizados
         function addLog(msg, type = 'info') {
             const time = new Date().toLocaleTimeString();
             state.logs.unshift({ time, msg, type });
             if(state.logs.length > 50) state.logs.pop();
         }
 
-        // Interceptar consola para debug
         const originalLog = console.log;
         const originalError = console.error;
         console.log = function(...args) {
@@ -194,14 +225,15 @@
             }
         }
 
-        App.setActiveTab = (tab) => { state.activeTab = tab; render(); };
-        App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); };
+        App.setActiveTab = (tab) => { state.activeTab = tab; render(); saveState(); };
+        App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); saveState(); };
         
         App.setZoom = (val) => {
             document.documentElement.style.setProperty('--app-zoom', val);
             localStorage.setItem('yetta_zoom', val);
             state.zoomLevel = val;
             render();
+            saveState();
         };
 
         App.handleDragStart = (e, id) => { 
@@ -221,6 +253,7 @@
                 newOrder.splice(targetIndex, 0, sourceId);
                 state.tabOrder = newOrder;
                 render();
+                saveState();
             }
         };
 
@@ -255,6 +288,7 @@
             if(!state.paymentSheets[state.activeDate]) state.paymentSheets[state.activeDate] = getEmptyRows();
             if(!state.supplierSheets[state.activeDate]) state.supplierSheets[state.activeDate] = getEmptyRows();
             render();
+            saveState();
         };
 
         App.addRow = (sheetType) => {
@@ -262,6 +296,7 @@
             if(!targetSheet[state.activeDate]) targetSheet[state.activeDate] = [];
             targetSheet[state.activeDate].push({ id: Date.now(), cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop' });
             render();
+            saveState();
         };
 
         App.removeRow = (sheetType, index) => {
@@ -269,6 +304,7 @@
              if(targetSheet[state.activeDate] && targetSheet[state.activeDate].length > 1) {
                   targetSheet[state.activeDate].splice(index, 1);
                   render();
+                  saveState();
              }
         };
 
@@ -364,12 +400,10 @@
                 if (entity) currentRows[index].metodo = entity.currency;
             }
             render();
+            saveState();
         };
 
-        App.handleSaveAndCalculate = async () => {
-            state.saveStatus = 'saving';
-            render();
-            
+        App.handleSaveAndCalculate = () => {
             const newClientDebts = {};
             state.clients.forEach(c => newClientDebts[c.id] = 0);
             Object.values(state.paymentSheets).forEach(rows => {
@@ -406,23 +440,9 @@
             });
             state.suppliers = state.suppliers.map(s => ({ ...s, debt: newSupDebts[s.id] || 0 }));
 
-            if(window.FirebaseDB) {
-                try {
-                    const cleanState = { ...state };
-                    delete cleanState.showLogsModal;
-                    delete cleanState.showNextDayModal;
-                    delete cleanState.saveStatus;
-                    await window.FirebaseDB.save(cleanState);
-                } catch(e) {
-                    console.error("Error sincronizando al guardar:", e);
-                }
-            }
-
-            setTimeout(() => {
-                state.saveStatus = 'saved';
-                render();
-                setTimeout(() => { state.saveStatus = null; state.showNextDayModal = true; render(); }, 800);
-            }, 600);
+            saveState();
+            state.showNextDayModal = true;
+            render();
         };
 
         // --- STREAMING_CHUNK:Utilidades y Funciones Menores ---
@@ -433,6 +453,7 @@
             for (let i = 0; i < 4; i++) randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
             state.generatedPassword = prefix + randomPart;
             render();
+            saveState();
         };
 
         App.copyPassword = () => {
@@ -443,6 +464,7 @@
                     if(state.passwordHistory.length > 5) state.passwordHistory.pop();
                 }
                 render();
+                saveState();
             });
         };
 
@@ -468,10 +490,11 @@
                 state.keysStore.push({ sn, key });
                 e.target.reset();
                 render();
+                saveState();
             }
         };
 
-        App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); };
+        App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); saveState(); };
         App.setSalesSearchQuery = (val) => { state.salesSearchQuery = val; render(); };
 
         App.addSalesProduct = (e) => {
@@ -483,10 +506,11 @@
                 state.salesData.products.push({ id: Date.now(), name, cost, price });
                 e.target.reset();
                 render();
+                saveState();
             }
         };
 
-        App.deleteSalesProduct = (id) => { state.salesData.products = state.salesData.products.filter(p => p.id !== id); render(); };
+        App.deleteSalesProduct = (id) => { state.salesData.products = state.salesData.products.filter(p => p.id !== id); render(); saveState(); };
 
         App.updateSaleHistory = (id, field, value) => {
             const index = state.salesData.history.findIndex(h => h.id === id);
@@ -498,6 +522,7 @@
                     state.salesData.history[index][field] = numValue;
                 }
                 render();
+                saveState();
             }
         };
 
@@ -534,10 +559,11 @@
                 
                 if(clientSelect) clientSelect.value = '';
                 render();
+                saveState();
             }
         };
 
-        App.deleteSaleRecord = (id) => { state.salesData.history = state.salesData.history.filter(h => h.id !== id); render(); };
+        App.deleteSaleRecord = (id) => { state.salesData.history = state.salesData.history.filter(h => h.id !== id); render(); saveState(); };
 
         App.openEntityModal = (type) => { state.entityModal = { show: true, type }; render(); };
         App.closeEntityModal = () => { state.entityModal.show = false; render(); };
@@ -550,12 +576,14 @@
                 if(state.entityModal.type === 'cliente') state.clients.push(newEntity);
                 else state.suppliers.push(newEntity);
                 App.closeEntityModal();
+                saveState();
             }
         };
         App.deleteEntity = (type, id) => {
             if(type === 'cliente') state.clients = state.clients.filter(c => c.id !== id);
             else state.suppliers = state.suppliers.filter(s => s.id !== id);
             render();
+            saveState();
         };
 
         App.addMembership = (e) => {
@@ -570,9 +598,10 @@
                 state.memberships.push({ id: Date.now(), clientId, plan, amount, currency, nextBilling, status: 'activa' });
                 e.target.reset();
                 render();
+                saveState();
             }
         };
-        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); render(); };
+        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); render(); saveState(); };
 
         App.setCalcBase = (base) => { state.calcState.displayBase = base; render(); };
         App.calcInput = (char) => {
@@ -601,6 +630,7 @@
                         const restored = JSON.parse(event.target.result);
                         state = { ...state, ...restored, activeTab: 'dashboard' };
                         render();
+                        saveState();
                     } catch (err) {
                         console.error(err);
                     }
@@ -1459,8 +1489,8 @@
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                     <h3 class="font-bold text-sm mb-4">Tasas de Cambio (1 USDT)</h3>
                     <div class="flex gap-4">
-                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
-                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render(); saveState();" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render(); saveState();" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
                     </div>
                 </div>
 
@@ -1549,26 +1579,27 @@
 
             window.addEventListener('firebase-ready', async () => {
                 if (window.FirebaseDB) {
-                    window.FirebaseDB.listen((cloudState) => {
+                    window.FirebaseDB.listen(async (cloudData) => {
                         state.firebaseStatus = 'green';
-                        if (cloudState) {
-                            const localUI = {
-                                activeTab: state.activeTab,
-                                showLogsModal: state.showLogsModal,
-                                showNextDayModal: state.showNextDayModal,
-                                saveStatus: state.saveStatus,
-                                keySearchQuery: state.keySearchQuery,
-                                isSearchingKey: state.isSearchingKey,
-                                keySearchResult: state.keySearchResult,
-                                salesSearchQuery: state.salesSearchQuery,
-                                firebaseStatus: 'green',
-                                logs: state.logs
-                            };
+                        if (cloudData) {
+                            isRemoteUpdate = true;
+                            // Mantener configuraciones locales de UI pero actualizar los datos reales
+                            const uiKeys = ['activeTab','showLogsModal','showNextDayModal','saveStatus','keySearchQuery','isSearchingKey','keySearchResult','salesSearchQuery','firebaseStatus','logs','zoomLevel','estimationPeriod','calcState','generatedPassword','passwordHistory','entityModal','tabOrder'];
+                            const uiState = {};
+                            uiKeys.forEach(k => uiState[k] = state[k]);
                             
-                            state = { ...state, ...cloudState };
-                            Object.assign(state, localUI);
+                            state = { ...cloudData, ...uiState };
+                            isRemoteUpdate = false;
+                            render();
+                        } else {
+                            // Si Firestore está vacío, guardamos el estado actual por defecto en la nube
+                            const cleanState = { ...state };
+                            delete cleanState.showLogsModal;
+                            delete cleanState.showNextDayModal;
+                            delete cleanState.saveStatus;
+                            await window.FirebaseDB.save(cleanState);
+                            render();
                         }
-                        render();
                     });
                 }
             });
