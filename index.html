@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yetta Services Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -15,12 +15,6 @@
             font-family: 'Inter', sans-serif; 
             background-color: #F8F9FA; 
             zoom: var(--app-zoom); 
-            /* Previene rebotes extraños en móviles */
-            overscroll-behavior-y: none;
-        }
-        /* Scrollbar personalizado y suave para móviles */
-        .custom-scrollbar {
-            -webkit-overflow-scrolling: touch; /* Scroll suave en iOS/Android */
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -30,94 +24,56 @@
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
         input::-webkit-calendar-picker-indicator { display: none !important; }
-        
-        /* Ajuste para altura real en móviles */
-        .h-screen-mobile {
-            height: 100vh;
-            height: 100dvh;
-        }
     </style>
 </head>
-<body class="h-screen-mobile overflow-hidden flex flex-col lg:flex-row p-0 sm:p-4 md:p-6 gap-0 sm:gap-4 text-gray-800 selection:bg-red-100 selection:text-red-900">
+<body class="h-screen overflow-hidden flex flex-col lg:flex-row p-2 sm:p-4 md:p-6 gap-4 text-gray-800 selection:bg-red-100 selection:text-red-900">
 
-    <div id="app-root" class="w-full h-full flex flex-col lg:flex-row gap-0 sm:gap-4 max-w-[1400px] mx-auto relative bg-[#F8F9FA] sm:bg-transparent">
+    <div id="app-root" class="w-full h-full flex flex-col lg:flex-row gap-4 max-w-[1400px] mx-auto relative">
         <!-- Reactivity Root -->
     </div>
 
-    <!-- Interceptor de Logs para Diagnóstico -->
-    <script>
-        window.AppLogs = [];
-        const origLog = console.log;
-        const origErr = console.error;
-        console.log = function(...args) {
-            window.AppLogs.push({ type: 'info', msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '), time: new Date().toLocaleTimeString() });
-            origLog.apply(console, args);
-            // Auto-render si el modal está abierto
-            const logContainer = document.getElementById('log-container');
-            if (logContainer) logContainer.innerHTML = window.AppLogs.map(l => `<div class="${l.type === 'error' ? 'text-red-400' : 'text-green-400'} border-b border-gray-800 pb-1 mb-1"><span class="text-gray-500">[${l.time}]</span> ${l.msg}</div>`).join('');
-        };
-        console.error = function(...args) {
-            window.AppLogs.push({ type: 'error', msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '), time: new Date().toLocaleTimeString() });
-            origErr.apply(console, args);
-            const logContainer = document.getElementById('log-container');
-            if (logContainer) logContainer.innerHTML = window.AppLogs.map(l => `<div class="${l.type === 'error' ? 'text-red-400' : 'text-green-400'} border-b border-gray-800 pb-1 mb-1"><span class="text-gray-500">[${l.time}]</span> ${l.msg}</div>`).join('');
-        };
-    </script>
-
+    <!-- Firebase SDKs y Configuración en Tiempo Real -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        console.log("Iniciando configuración de Firebase...");
-        try {
-            const firebaseConfig = {
-                apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
-                authDomain: "yettadashboard.firebaseapp.com",
-                projectId: "yettadashboard",
-                storageBucket: "yettadashboard.firebasestorage.app",
-                messagingSenderId: "925942578448",
-                appId: "1:925942578448:web:3e4987c3601ce225e3f995"
-            };
+        // Inicializar Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
+            authDomain: "yettadashboard.firebaseapp.com",
+            projectId: "yettadashboard",
+            storageBucket: "yettadashboard.firebasestorage.app",
+            messagingSenderId: "925942578448",
+            appId: "1:925942578448:web:3e4987c3601ce225e3f995"
+        };
 
-            const app = initializeApp(firebaseConfig);
-            const db = getFirestore(app);
-            // Guarda todo el estado en un solo documento para mayor simpleza
-            const docRef = doc(db, "yetta_db", "main_state");
-            console.log("Firebase inicializado correctamente. Base de datos vinculada.");
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const docRef = doc(db, "data", "mainState");
 
-            window.FirebaseDB = {
-                save: async (data) => {
-                    try { 
-                        console.log("Iniciando sincronización (guardado)...");
-                        await setDoc(docRef, data); 
-                        console.log("Nube: Sincronización exitosa"); 
-                    } 
-                    catch(e) { console.error("Nube Error Crítico (Guardar):", e.message || e); }
-                },
-                load: async () => {
-                    try { 
-                        console.log("Solicitando datos a Firestore...");
-                        const snap = await getDoc(docRef); 
-                        if (snap.exists()) {
-                            console.log("Datos encontrados y descargados.");
-                            return snap.data(); 
-                        } else {
-                            console.log("Base de datos conectada, pero no hay datos previos (documento vacío).");
-                        }
-                    } 
-                    catch(e) { 
-                        console.error("Nube Error Crítico (Cargar):", e.message || e); 
-                        throw e;
-                    }
-                    return null;
+        window.FirebaseDB = {
+            save: async (newState) => {
+                try {
+                    await setDoc(docRef, newState);
+                    console.log("Datos guardados en Firestore exitosamente.");
+                } catch (e) {
+                    console.error("Error al guardar en Firestore:", e);
+                    throw e;
                 }
-            };
+            },
+            listen: (callback) => {
+                return onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        callback(docSnap.data());
+                    }
+                }, (error) => {
+                    console.error("Error en tiempo real:", error);
+                    window.dispatchEvent(new Event('firebase-error'));
+                });
+            }
+        };
 
-            window.dispatchEvent(new Event('firebase-ready'));
-        } catch(e) {
-            console.error("Error al inicalizar Firebase. Revisa la configuración:", e.message || e);
-            window.dispatchEvent(new Event('firebase-error'));
-        }
+        window.dispatchEvent(new Event('firebase-ready'));
     </script>
 
     <script>
@@ -134,7 +90,8 @@
             activeDate: new Date().toISOString().split('T')[0],
             showNextDayModal: false,
             showLogsModal: false,
-            firebaseStatus: 'yellow',
+            firebaseStatus: 'yellow', // yellow: connecting, green: connected, red: error
+            logs: [],
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
@@ -154,7 +111,6 @@
                 { sn: "A7RM6R5103003989", key: "DQE5TSJC5YFSHCMAFRP" },
                 { sn: "ASXX6R5221001418", key: "318LXU0A5DNULN7AFRP" },
                 { sn: "AF6RUT5626000482", key: "RD73G578DJVT9WZXFRP" }
-                // Se conservan los datos
             ],
 
             salesSearchQuery: '',
@@ -180,28 +136,24 @@
 
         const App = {};
 
-        // Función centralizada para autoguardado en la nube
-        App.syncToCloud = () => {
-            if (window.FirebaseDB) window.FirebaseDB.save(state);
-        };
+        // Sistema de Logs personalizados
+        function addLog(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            state.logs.unshift({ time, msg, type });
+            if(state.logs.length > 50) state.logs.pop();
+        }
 
-        // --- STREAMING_CHUNK:Lógica de Detección de Dispositivo Móvil ---
-        App.checkResponsive = () => {
-            const isMobile = window.innerWidth < 1024;
-            if (isMobile) {
-                // En móviles, forzamos el zoom a 1 para que el navegador maneje el responsive natural 
-                // y evitar que la app se vea excesivamente pequeña o distorsionada.
-                document.documentElement.style.setProperty('--app-zoom', 1);
-                document.body.classList.add('mobile-mode');
-            } else {
-                // En escritorio, respetamos el zoom seleccionado por el usuario.
-                document.documentElement.style.setProperty('--app-zoom', state.zoomLevel);
-                document.body.classList.remove('mobile-mode');
-            }
+        // Interceptar consola para debug
+        const originalLog = console.log;
+        const originalError = console.error;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addLog(args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '), 'info');
         };
-
-        // Escuchar cambios en el tamaño de la ventana
-        window.addEventListener('resize', App.checkResponsive);
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addLog(args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '), 'error');
+        };
 
         // --- STREAMING_CHUNK:Definiendo Core & Navegación ---
         function render() {
@@ -218,16 +170,16 @@
 
             document.getElementById('app-root').innerHTML = `
                 ${renderSidebar()}
-                <main class="flex-1 flex flex-col gap-4 w-full h-full overflow-hidden relative p-2 sm:p-0">
+                <main class="flex-1 flex flex-col gap-4 w-full h-full overflow-hidden relative">
                     ${renderHeader()}
-                    <div class="flex-1 overflow-auto w-full pb-20 lg:pb-0 custom-scrollbar pr-1 sm:pr-2">
+                    <div class="flex-1 overflow-auto w-full pb-20 lg:pb-10 custom-scrollbar pr-1 sm:pr-2">
                         ${renderContent()}
                     </div>
                 </main>
                 ${renderMobileNav()}
                 ${state.showNextDayModal ? renderNextDayModal() : ''}
-                ${state.entityModal.show ? renderEntityModal() : ''}
                 ${state.showLogsModal ? renderLogsModal() : ''}
+                ${state.entityModal.show ? renderEntityModal() : ''}
             `;
             lucide.createIcons();
 
@@ -246,11 +198,10 @@
         App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); };
         
         App.setZoom = (val) => {
+            document.documentElement.style.setProperty('--app-zoom', val);
             localStorage.setItem('yetta_zoom', val);
             state.zoomLevel = val;
-            // Evaluamos si aplicarlo dependiendo de si es móvil o no
-            App.checkResponsive(); 
-            if(window.innerWidth >= 1024) render();
+            render();
         };
 
         App.handleDragStart = (e, id) => { 
@@ -272,8 +223,6 @@
                 render();
             }
         };
-
-        App.toggleLogs = () => { state.showLogsModal = !state.showLogsModal; render(); };
 
         // --- STREAMING_CHUNK:Definiendo Funciones Financieras ---
         App.formatCurrency = (value, currency = 'usdt') => {
@@ -417,11 +366,10 @@
             render();
         };
 
-        App.handleSaveAndCalculate = () => {
+        App.handleSaveAndCalculate = async () => {
             state.saveStatus = 'saving';
             render();
             
-            // Recalcular deuda clientes global
             const newClientDebts = {};
             state.clients.forEach(c => newClientDebts[c.id] = 0);
             Object.values(state.paymentSheets).forEach(rows => {
@@ -440,7 +388,6 @@
             });
             state.clients = state.clients.map(c => ({ ...c, debt: newClientDebts[c.id] || 0 }));
 
-            // Recalcular deuda proveedores global
             const newSupDebts = {};
             state.suppliers.forEach(s => newSupDebts[s.id] = 0);
             Object.values(state.supplierSheets).forEach(rows => {
@@ -459,7 +406,17 @@
             });
             state.suppliers = state.suppliers.map(s => ({ ...s, debt: newSupDebts[s.id] || 0 }));
 
-            App.syncToCloud();
+            if(window.FirebaseDB) {
+                try {
+                    const cleanState = { ...state };
+                    delete cleanState.showLogsModal;
+                    delete cleanState.showNextDayModal;
+                    delete cleanState.saveStatus;
+                    await window.FirebaseDB.save(cleanState);
+                } catch(e) {
+                    console.error("Error sincronizando al guardar:", e);
+                }
+            }
 
             setTimeout(() => {
                 state.saveStatus = 'saved';
@@ -576,7 +533,6 @@
                 }
                 
                 if(clientSelect) clientSelect.value = '';
-                App.syncToCloud();
                 render();
             }
         };
@@ -593,14 +549,12 @@
                 const newEntity = { id: Date.now(), name, currency, debt: 0, type: state.entityModal.type };
                 if(state.entityModal.type === 'cliente') state.clients.push(newEntity);
                 else state.suppliers.push(newEntity);
-                App.syncToCloud();
                 App.closeEntityModal();
             }
         };
         App.deleteEntity = (type, id) => {
             if(type === 'cliente') state.clients = state.clients.filter(c => c.id !== id);
             else state.suppliers = state.suppliers.filter(s => s.id !== id);
-            App.syncToCloud();
             render();
         };
 
@@ -615,11 +569,10 @@
             if (clientId && plan && amount && nextBilling) {
                 state.memberships.push({ id: Date.now(), clientId, plan, amount, currency, nextBilling, status: 'activa' });
                 e.target.reset();
-                App.syncToCloud();
                 render();
             }
         };
-        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); App.syncToCloud(); render(); };
+        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); render(); };
 
         App.setCalcBase = (base) => { state.calcState.displayBase = base; render(); };
         App.calcInput = (char) => {
@@ -769,14 +722,14 @@
             const sortedItems = state.tabOrder.map(id => navItems.find(item => item && item.id === id)).filter(Boolean);
 
             return `
-            <aside class="hidden lg:flex flex-col items-center w-20 bg-white rounded-2xl py-6 shadow-sm border border-gray-100 flex-shrink-0 h-full overflow-hidden">
-                <div class="flex flex-col items-center gap-6 w-full h-full overflow-hidden">
-                    <div class="w-10 h-10 rounded-full border-4 border-red-600 border-t-transparent flex-shrink-0 flex items-center justify-center rotate-45 mb-2">
+            <aside class="hidden lg:flex flex-col items-center justify-between w-20 bg-white rounded-2xl py-6 shadow-sm border border-gray-100 flex-shrink-0">
+                <div class="flex flex-col items-center gap-6 w-full overflow-y-auto custom-scrollbar">
+                    <div class="w-10 h-10 rounded-full border-4 border-red-600 border-t-transparent flex items-center justify-center rotate-45 mb-2 flex-shrink-0">
                         <div class="w-3 h-3 bg-red-600 rounded-full"></div>
                     </div>
-                    <nav class="flex flex-col gap-3 w-full px-3 flex-1 overflow-y-auto custom-scrollbar pb-2">
+                    <nav class="flex flex-col gap-3 w-full px-3">
                         ${sortedItems.map(item => `
-                        <button draggable="true" ondragstart="App.handleDragStart(event, '${item.id}')" ondragover="App.handleDragOver(event)" ondrop="App.handleDrop(event, '${item.id}')" onclick="App.setActiveTab('${item.id}')" class="w-full flex-shrink-0 aspect-square rounded-xl flex items-center justify-center transition-all relative group ${state.activeTab === item.id ? 'bg-gray-900 text-white shadow-md' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}" title="${item.tooltip}">
+                        <button draggable="true" ondragstart="App.handleDragStart(event, '${item.id}')" ondragover="App.handleDragOver(event)" ondrop="App.handleDrop(event, '${item.id}')" onclick="App.setActiveTab('${item.id}')" class="w-full aspect-square rounded-xl flex items-center justify-center transition-all relative group ${state.activeTab === item.id ? 'bg-gray-900 text-white shadow-md' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}" title="${item.tooltip}">
                             <i data-lucide="${item.icon}" class="w-5 h-5"></i>
                         </button>
                         `).join('')}
@@ -786,26 +739,25 @@
         }
 
         function renderHeader() {
-            const fbColor = state.firebaseStatus === 'green' ? 'bg-green-500' : (state.firebaseStatus === 'red' ? 'bg-red-500' : 'bg-yellow-500');
+            let statusColor = 'bg-yellow-400 animate-pulse';
+            if(state.firebaseStatus === 'green') statusColor = 'bg-green-500';
+            if(state.firebaseStatus === 'red') statusColor = 'bg-red-500';
+
             return `
-            <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0 mx-2 mt-2 sm:mx-0 sm:mt-0">
+            <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0">
                 <div>
-                    <h1 class="text-xl font-black text-gray-900 flex items-center gap-2 uppercase tracking-tight">CONTROL DE PAGOS <span class="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full hidden sm:inline-block">YETTA SERVICES</span></h1>
+                    <h1 class="text-xl font-black text-gray-900 flex items-center gap-2 uppercase tracking-tight">CONTROL DE PAGOS <span class="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">YETTA SERVICES</span></h1>
                     <p class="text-gray-400 text-[11px] mt-0.5 font-medium">Sistema de Gestión Operativa</p>
                 </div>
                 <div class="flex items-center gap-3">
-                    <button onclick="App.toggleLogs()" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-100 transition-colors" title="Ver logs de conexión">
-                        <span class="relative flex h-2.5 w-2.5">
-                          ${state.firebaseStatus === 'yellow' ? `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>` : ''}
-                          <span class="relative inline-flex rounded-full h-2.5 w-2.5 ${fbColor}"></span>
-                        </span>
-                        Logs
+                    <button onclick="state.showLogsModal=true; render()" class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors">
+                        <span class="w-2 h-2 rounded-full ${statusColor}"></span> Logs
                     </button>
-                    <div class="relative flex items-center w-full sm:w-auto">
-                        <input type="text" placeholder="Buscar registros..." class="pl-4 pr-10 py-2 bg-gray-50 rounded-lg text-xs outline-none w-full sm:w-48 border border-gray-200 focus:border-red-400 transition-colors"/>
+                    <div class="relative flex items-center">
+                        <input type="text" placeholder="Buscar registros..." class="pl-4 pr-10 py-2 bg-gray-50 rounded-lg text-xs outline-none w-48 border border-gray-200 focus:border-red-400 transition-colors"/>
                         <i data-lucide="search" class="absolute right-3 w-3.5 h-3.5 text-gray-400"></i>
                     </div>
-                    <button class="w-9 h-9 flex-shrink-0 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors relative">
+                    <button class="w-9 h-9 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors relative">
                         <i data-lucide="bell" class="w-4 h-4"></i>
                         <span class="absolute top-2 right-2 w-1.5 h-1.5 bg-red-600 rounded-full"></span>
                     </button>
@@ -814,10 +766,10 @@
         }
 
         function renderMobileNav() {
-            return `<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex overflow-x-auto gap-2 px-3 py-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)] [&::-webkit-scrollbar]:hidden" style="scrollbar-width: none;">
+            return `<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex items-center overflow-x-auto p-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] custom-scrollbar gap-2">
                 ${state.tabOrder.map(id => {
                     const icons = { dashboard:'layout-grid', suppliers:'building-2', memberships:'credit-card', users:'users', tools:'key', calculator:'calculator', sales:'shopping-bag', settings:'settings' };
-                    return `<button onclick="App.setActiveTab('${id}')" class="p-2.5 flex-shrink-0 min-w-[60px] rounded-xl flex items-center justify-center ${state.activeTab === id ? 'text-red-600 bg-red-50' : 'text-gray-400'}"><i data-lucide="${icons[id]}" class="w-5 h-5"></i></button>`;
+                    return `<button onclick="App.setActiveTab('${id}')" class="p-3 rounded-xl flex items-center justify-center flex-shrink-0 ${state.activeTab === id ? 'text-red-600 bg-red-50' : 'text-gray-400'}"><i data-lucide="${icons[id]}" class="w-5 h-5"></i></button>`;
                 }).join('')}
             </nav>`;
         }
@@ -852,7 +804,7 @@
             const estTotal = est.usdt + (est.cop / state.exchangeRates.cop) + (est.mxn / state.exchangeRates.mxn);
 
             return `
-            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full">
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 flex-shrink-0">
                     <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
                         <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Ganancias Semana</span><i data-lucide="trending-up" class="w-3 h-3 text-red-500"></i></div>
@@ -918,9 +870,8 @@
                     <div class="bg-gray-50/80 border-b border-gray-100 p-3 flex justify-between items-center px-4">
                       <h2 class="text-[10px] font-black text-gray-800 tracking-wide uppercase flex items-center gap-2"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Hoja de Trabajo: Ingresos</h2>
                     </div>
-                    <div class="flex-1 overflow-auto custom-scrollbar">
-                        <!-- Añadido min-w-[900px] para forzar scroll horizontal en móviles y evitar aplastamiento -->
-                        <table class="w-full text-left border-collapse relative min-w-[900px] lg:min-w-full">
+                    <div class="flex-1 overflow-auto">
+                        <table class="w-full text-left border-collapse relative min-w-[900px]">
                             <thead class="bg-white sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-12 text-center border-b border-gray-100">Cant.</th>
@@ -977,11 +928,11 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center flex-wrap gap-2">
-                        <button onclick="App.addRow('payments')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center">
+                    <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center">
+                        <button onclick="App.addRow('payments')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors">
                             <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir Fila
                         </button>
-                        <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm w-full sm:w-auto justify-center ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
+                        <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
                             ${state.saveStatus === 'saving' ? 'Guardando...' : state.saveStatus === 'saved' ? '<i data-lucide="check-circle" class="w-4 h-4"></i> ¡Guardado!' : '<i data-lucide="save" class="w-4 h-4"></i> Calcular y Guardar'}
                         </button>
                     </div>
@@ -1001,7 +952,7 @@
             };
 
             return `
-            <div class="flex flex-col gap-4 px-2 sm:px-0">
+            <div class="flex flex-col gap-4">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-shrink-0">
                     <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
                         <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Egresos Hoy</span><i data-lucide="arrow-down-right" class="w-3 h-3 text-red-500"></i></div>
@@ -1033,9 +984,8 @@
                     <div class="bg-gray-50/80 border-b border-gray-100 p-3 flex justify-between items-center px-4">
                       <h2 class="text-[10px] font-black text-gray-800 tracking-wide uppercase flex items-center gap-2"><i data-lucide="building-2" class="w-3.5 h-3.5"></i> Hoja de Trabajo: Egresos</h2>
                     </div>
-                    <div class="flex-1 overflow-auto custom-scrollbar">
-                        <!-- Añadido min-w-[900px] para forzar scroll horizontal en móviles -->
-                        <table class="w-full text-left border-collapse min-w-[900px] lg:min-w-full">
+                    <div class="flex-1 overflow-auto">
+                        <table class="w-full text-left border-collapse min-w-[900px]">
                             <thead class="bg-white sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider w-12 text-center border-b border-gray-100">Cant.</th>
@@ -1090,11 +1040,11 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center flex-wrap gap-2">
-                        <button onclick="App.addRow('suppliers')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center">
+                    <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center">
+                        <button onclick="App.addRow('suppliers')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors">
                             <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir Fila
                         </button>
-                        <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm w-full sm:w-auto justify-center ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
+                        <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
                             ${state.saveStatus === 'saving' ? 'Guardando...' : state.saveStatus === 'saved' ? '<i data-lucide="check-circle" class="w-4 h-4"></i> ¡Guardado!' : '<i data-lucide="save" class="w-4 h-4"></i> Calcular y Guardar'}
                         </button>
                     </div>
@@ -1105,7 +1055,7 @@
         // --- STREAMING_CHUNK:Renderizado de Membresías y Usuarios ---
         function renderMemberships() {
             return `
-            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-sm"><i data-lucide="credit-card" class="w-5 h-5"></i></div>
                     <div><h2 class="text-xl font-bold text-gray-900">Suscripciones Activas</h2><p class="text-xs text-gray-500 font-medium">Control de pagos recurrentes</p></div>
@@ -1169,12 +1119,12 @@
                                         return `
                                         <div class="border border-gray-100 rounded-xl p-3 hover:bg-gray-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 group shadow-sm">
                                             <div class="flex items-center gap-3">
-                                                <div class="w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center font-black text-lg shadow-sm border ${isPastDue ? 'bg-red-50 text-red-600 border-red-100' : 'bg-gray-50 text-gray-600 border-gray-200'}">
+                                                <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg shadow-sm border ${isPastDue ? 'bg-red-50 text-red-600 border-red-100' : 'bg-gray-50 text-gray-600 border-gray-200'}">
                                                     ${client ? client.name.charAt(0) : '?'}
                                                 </div>
                                                 <div>
-                                                    <h4 class="font-bold text-sm text-gray-900 truncate max-w-[150px] sm:max-w-xs">${client ? client.name : 'Cliente Eliminado'}</h4>
-                                                    <p class="text-[10px] text-gray-500 font-bold uppercase truncate">${mem.plan}</p>
+                                                    <h4 class="font-bold text-sm text-gray-900">${client ? client.name : 'Cliente Eliminado'}</h4>
+                                                    <p class="text-[10px] text-gray-500 font-bold uppercase">${mem.plan}</p>
                                                     <div class="flex items-center gap-1.5 mt-1">
                                                         <span class="text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${isPastDue ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${isPastDue ? 'Vencida' : 'Al día'}</span>
                                                         <span class="text-[10px] text-gray-400 font-bold flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> ${mem.nextBilling}</span>
@@ -1186,7 +1136,7 @@
                                                     <span class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Monto</span>
                                                     <span class="text-sm font-black text-gray-900">$${App.formatCurrency(mem.amount, mem.currency)} <span class="text-[9px] text-gray-500">${mem.currency.toUpperCase()}</span></span>
                                                 </div>
-                                                <button onclick="App.deleteMembership(${mem.id})" class="w-7 h-7 flex-shrink-0 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                                <button onclick="App.deleteMembership(${mem.id})" class="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                                             </div>
                                         </div>`;
                                     }).join('')}
@@ -1200,12 +1150,12 @@
 
         function renderUsers() {
             return `
-            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full">
                 <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="users" class="w-5 h-5"></i></div>
                 <div><h2 class="text-xl font-bold text-gray-900">Directorio</h2><p class="text-xs text-gray-500 font-medium">Gestión de entidades</p></div></div>
                 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 pb-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden max-h-[50vh] lg:max-h-full">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
                         <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                             <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs">Clientes</h3>
                             <button onclick="App.openEntityModal('cliente')" class="text-[10px] font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded flex items-center gap-1 hover:bg-red-100">+ Nuevo</button>
@@ -1213,17 +1163,17 @@
                         <div class="flex-1 overflow-auto p-2 custom-scrollbar">
                             ${state.clients.map(c => `
                                 <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl group border border-transparent hover:border-gray-100">
-                                    <div class="truncate pr-2"><p class="text-xs font-bold text-gray-900 truncate">${c.name}</p><p class="text-[9px] text-gray-400 uppercase">${c.currency}</p></div>
-                                    <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                                    <div><p class="text-xs font-bold text-gray-900">${c.name}</p><p class="text-[9px] text-gray-400 uppercase">${c.currency}</p></div>
+                                    <div class="flex items-center gap-3">
                                         <span class="text-[10px] font-bold ${c.debt>0?'text-red-500':'text-green-500'}">${c.debt>0?`Deuda: $${App.formatCurrency(c.debt, c.currency)}`:'Al día'}</span>
                                         ${c.debt > 0 ? `<button id="invoice-btn-${c.id}" onclick="App.generateInvoiceAndSend(${c.id})" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>` : ''}
-                                        <button onclick="App.deleteEntity('cliente', ${c.id})" class="text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                                        <button onclick="App.deleteEntity('cliente', ${c.id})" class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                     </div>
                                 </div>
                             `).join('')}
                         </div>
                     </div>
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden max-h-[50vh] lg:max-h-full">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
                         <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                             <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs">Proveedores</h3>
                             <button onclick="App.openEntityModal('proveedor')" class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2.5 py-1.5 rounded flex items-center gap-1 hover:bg-gray-200">+ Nuevo</button>
@@ -1231,11 +1181,11 @@
                         <div class="flex-1 overflow-auto p-2 custom-scrollbar">
                             ${state.suppliers.map(s => `
                                 <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl group border border-transparent hover:border-gray-100">
-                                    <div class="truncate pr-2"><p class="text-xs font-bold text-gray-900 truncate">${s.name}</p><p class="text-[9px] text-gray-400 uppercase">${s.currency}</p></div>
-                                    <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                                    <div><p class="text-xs font-bold text-gray-900">${s.name}</p><p class="text-[9px] text-gray-400 uppercase">${s.currency}</p></div>
+                                    <div class="flex items-center gap-3">
                                         <span class="text-[10px] font-bold ${s.debt>0?'text-red-500':'text-green-500'}">${s.debt>0?`Por pagar: $${App.formatCurrency(s.debt, s.currency)}`:'Al día'}</span>
                                         ${s.debt > 0 ? `<button id="invoice-btn-sup-${s.id}" onclick="App.generateInvoiceAndSend(${s.id}, 'proveedor')" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>` : ''}
-                                        <button onclick="App.deleteEntity('proveedor', ${s.id})" class="text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                                        <button onclick="App.deleteEntity('proveedor', ${s.id})" class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -1248,15 +1198,15 @@
         // --- STREAMING_CHUNK:Renderizado de Herramientas y Calculadora ---
         function renderTools() {
             return `
-            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full">
                 <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="key" class="w-5 h-5"></i></div>
                 <div><h2 class="text-xl font-bold text-gray-900">Herramientas & Keys</h2></div></div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
                         <h3 class="font-bold text-gray-800 text-sm mb-4">Generador Contraseñas (11 Letras)</h3>
-                        <div class="bg-gray-50 rounded-xl p-6 text-center mb-4 min-h-[100px] flex flex-col items-center justify-center border border-gray-200 w-full overflow-hidden">
+                        <div class="bg-gray-50 rounded-xl p-6 text-center mb-4 min-h-[100px] flex flex-col items-center justify-center border border-gray-200">
                             <span class="text-[9px] text-gray-500 font-bold mb-2 uppercase tracking-widest">CONTRASEÑA GENERADA</span>
-                            <span class="text-xl sm:text-2xl font-mono text-gray-900 font-black truncate w-full">${state.generatedPassword || '---'}</span>
+                            <span class="text-xl font-mono text-gray-900 font-black">${state.generatedPassword || '---'}</span>
                         </div>
                         <div class="flex gap-2">
                             <button onclick="App.generateRandomPassword()" class="flex-1 bg-gray-900 text-white text-xs font-bold py-3 rounded-xl hover:bg-gray-800">Generar Nueva</button>
@@ -1272,20 +1222,18 @@
                             <span class="text-[9px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded-md">Total: ${state.keysStore.length}</span>
                         </div>
                         <div class="flex gap-2 mb-4">
-                            <input id="key-search-input" type="text" value="${state.keySearchQuery}" oninput="App.setKeySearchQuery(this.value)" placeholder="INGRESAR SN..." class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-gray-400 font-mono uppercase w-full"/>
-                            <button onclick="App.searchKey()" class="bg-gray-900 text-white px-3 sm:px-4 rounded-xl text-xs font-bold hover:bg-gray-800 flex items-center gap-1"><i data-lucide="search" class="w-3 h-3"></i> <span class="hidden sm:inline">Buscar</span></button>
+                            <input id="key-search-input" type="text" value="${state.keySearchQuery}" oninput="App.setKeySearchQuery(this.value)" placeholder="INGRESAR SN..." class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-gray-400 font-mono uppercase"/>
+                            <button onclick="App.searchKey()" class="bg-gray-900 text-white px-4 rounded-xl text-xs font-bold hover:bg-gray-800 flex items-center gap-1"><i data-lucide="search" class="w-3 h-3"></i> Buscar</button>
                         </div>
-                        <div class="flex-1 bg-gray-50 rounded-xl p-4 flex flex-col items-center justify-center border border-gray-200 text-center min-h-[150px] overflow-hidden">
+                        <div class="flex-1 bg-gray-50 rounded-xl p-4 flex flex-col items-center justify-center border border-gray-200 text-center min-h-[150px]">
                             ${state.isSearchingKey ? `<i data-lucide="loader" class="w-6 h-6 text-gray-400 animate-spin mb-2"></i><p class="text-[10px] text-gray-500 font-bold uppercase">Desencriptando base de datos...</p>` : 
-                              state.keySearchResult ? `<span class="text-[9px] text-gray-400 font-bold mb-1 uppercase tracking-widest">KEY CORRESPONDIENTE</span><span class="text-lg sm:text-xl font-mono font-black text-gray-900 truncate w-full ${state.keySearchResult==='NO ENCONTRADO'?'text-red-500':''}">${state.keySearchResult}</span>` : 
+                              state.keySearchResult ? `<span class="text-[9px] text-gray-400 font-bold mb-1 uppercase tracking-widest">KEY CORRESPONDIENTE</span><span class="text-lg font-mono font-black text-gray-900 ${state.keySearchResult==='NO ENCONTRADO'?'text-red-500':''}">${state.keySearchResult}</span>` : 
                               `<i data-lucide="shield-check" class="w-8 h-8 text-gray-300 mb-2"></i><p class="text-[10px] text-gray-400 font-medium">Ingrese un SN para buscar su Key segura.</p>`}
                         </div>
-                        <form onsubmit="App.addKey(event)" class="mt-4 flex flex-col sm:flex-row gap-2 pt-4 border-t border-gray-100">
-                             <input type="text" name="sn" required placeholder="Nuevo SN..." class="w-full sm:w-1/2 border border-gray-200 rounded-lg px-2 py-2 sm:py-1.5 text-[10px] font-mono outline-none uppercase"/>
-                             <div class="flex gap-2 w-full">
-                                <input type="text" name="key" required placeholder="Nueva Key..." class="flex-1 border border-gray-200 rounded-lg px-2 py-2 sm:py-1.5 text-[10px] font-mono outline-none uppercase"/>
-                                <button type="submit" class="bg-gray-100 text-gray-600 px-3 rounded-lg hover:bg-gray-200 py-2 sm:py-0"><i data-lucide="plus" class="w-3.5 h-3.5"></i></button>
-                             </div>
+                        <form onsubmit="App.addKey(event)" class="mt-4 flex gap-2 pt-4 border-t border-gray-100">
+                             <input type="text" name="sn" required placeholder="Nuevo SN..." class="w-1/2 border border-gray-200 rounded-lg px-2 py-1.5 text-[10px] font-mono outline-none uppercase"/>
+                             <input type="text" name="key" required placeholder="Nueva Key..." class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-[10px] font-mono outline-none uppercase"/>
+                             <button type="submit" class="bg-gray-100 text-gray-600 px-3 rounded-lg hover:bg-gray-200"><i data-lucide="plus" class="w-3.5 h-3.5"></i></button>
                         </form>
                     </div>
                 </div>
@@ -1307,13 +1255,13 @@
             const inactiveCls = "border-gray-100 bg-white hover:border-gray-200 cursor-pointer";
 
             return `
-            <div class="flex flex-col h-full w-full max-w-4xl mx-auto gap-4 px-2 sm:px-0">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0 gap-3">
+            <div class="flex flex-col h-full w-full max-w-4xl mx-auto gap-4">
+                <div class="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="calculator" class="w-5 h-5"></i></div>
                         <div><h2 class="text-xl font-bold text-gray-900 leading-tight">Calculadora de Tasas</h2><p class="text-[10px] text-gray-500 font-medium">Conversión en tiempo real</p></div>
                     </div>
-                    <div class="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 w-full sm:w-auto justify-center">
+                    <div class="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100">
                         <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tasa COP: <span class="text-gray-900">$${rates.cop}</span></span>
                         <div class="w-px h-4 bg-gray-300"></div>
                         <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tasa MXN: <span class="text-gray-900">$${rates.mxn}</span></span>
@@ -1321,34 +1269,34 @@
                 </div>
 
                 <div class="flex flex-col lg:flex-row gap-4 flex-1">
-                    <div class="flex-1 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center gap-3 sm:gap-4 overflow-y-auto custom-scrollbar">
+                    <div class="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center gap-4">
                         ${['USDT','COP','MXN'].map(curr => {
                             const val = curr==='USDT'?valUSDT:curr==='COP'?valCOP:valMXN;
                             const title = curr==='USDT'?'USDT (TETHER)':curr==='COP'?'PESOS COLOMBIANOS (COP)':'PESOS MEXICANOS (MXN)';
                             return `
                             <div onclick="App.setCalcBase('${curr}')" class="p-4 rounded-xl border-2 transition-all flex justify-between items-center relative ${vBase===curr ? activeCls : inactiveCls}">
-                                <div class="flex flex-col gap-1 w-full overflow-hidden">
-                                    <span class="text-[10px] font-black uppercase ${vBase===curr?'text-red-500':'text-gray-400'} tracking-widest truncate">${title} ${vBase===curr?'(BASE)':''}</span>
-                                    <span class="text-2xl sm:text-3xl font-black text-gray-900 leading-none truncate w-[85%]">$${fNum(val,curr)}</span>
+                                <div class="flex flex-col gap-1 w-full">
+                                    <span class="text-[10px] font-black uppercase ${vBase===curr?'text-red-500':'text-gray-400'} tracking-widest">${title} ${vBase===curr?'(BASE)':''}</span>
+                                    <span class="text-3xl font-black text-gray-900 leading-none">$${fNum(val,curr)}</span>
                                 </div>
-                                ${vBase===curr ? `<button onclick="event.stopPropagation(); App.copyCalc('${val}')" class="p-2 text-gray-400 hover:text-gray-900 absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 bg-white rounded-md hover:bg-gray-100 transition-colors"><i data-lucide="copy" class="w-4 h-4"></i></button>` : ''}
+                                ${vBase===curr ? `<button onclick="event.stopPropagation(); App.copyCalc('${val}')" class="p-2 text-gray-400 hover:text-gray-900 absolute right-4 top-1/2 -translate-y-1/2 bg-white rounded-md hover:bg-gray-100 transition-colors"><i data-lucide="copy" class="w-4 h-4"></i></button>` : ''}
                             </div>`;
                         }).join('')}
                     </div>
 
-                    <div class="w-full lg:w-[400px] bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                        <div class="grid grid-cols-4 gap-2 sm:gap-3 h-[300px] sm:h-full sm:max-h-[400px]">
-                            ${['7','8','9'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">${n}</button>`).join('')}
-                            <button onclick="App.calcInput('DEL')" class="bg-red-50 hover:bg-red-100 border border-red-100 text-red-500 flex justify-center items-center rounded-xl transition-colors active:bg-red-200"><i data-lucide="delete" class="w-5 h-5"></i></button>
+                    <div class="w-full lg:w-[400px] bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                        <div class="grid grid-cols-4 gap-3 h-full max-h-[400px]">
+                            ${['7','8','9'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-xl rounded-xl transition-colors">${n}</button>`).join('')}
+                            <button onclick="App.calcInput('DEL')" class="bg-red-50 hover:bg-red-100 border border-red-100 text-red-500 flex justify-center items-center rounded-xl transition-colors"><i data-lucide="delete" class="w-5 h-5"></i></button>
                             
-                            ${['4','5','6'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">${n}</button>`).join('')}
-                            <button onclick="App.calcInput('C')" class="bg-gray-900 hover:bg-gray-800 text-white font-black text-xl sm:text-2xl rounded-xl transition-colors shadow-sm row-span-2 active:bg-gray-700">C</button>
+                            ${['4','5','6'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-xl rounded-xl transition-colors">${n}</button>`).join('')}
+                            <button onclick="App.calcInput('C')" class="bg-gray-900 hover:bg-gray-800 text-white font-black text-2xl rounded-xl transition-colors shadow-sm row-span-2">C</button>
                             
-                            ${['1','2','3'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">${n}</button>`).join('')}
+                            ${['1','2','3'].map(n => `<button onclick="App.calcInput('${n}')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-xl rounded-xl transition-colors">${n}</button>`).join('')}
                             
-                            <button onclick="App.calcInput('0')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors col-span-2 active:bg-gray-200">0</button>
-                            <button onclick="App.calcInput('.')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">.</button>
-                            <button onclick="App.calcInput('00')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-lg sm:text-xl rounded-xl transition-colors active:bg-gray-200">00</button>
+                            <button onclick="App.calcInput('0')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-xl rounded-xl transition-colors col-span-2">0</button>
+                            <button onclick="App.calcInput('.')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-xl rounded-xl transition-colors">.</button>
+                            <button onclick="App.calcInput('00')" class="bg-gray-50 hover:bg-gray-100 border border-gray-100 text-gray-900 font-black text-xl rounded-xl transition-colors">00</button>
                         </div>
                     </div>
                 </div>
@@ -1363,51 +1311,49 @@
             const gananciaNeta = historyVentaTotal - historyCostoTotal;
 
             return `
-            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-sm flex-shrink-0"><i data-lucide="shopping-bag" class="w-5 h-5"></i></div>
-                    <div><h2 class="text-xl font-bold text-gray-900 truncate">Gestión de Ventas</h2><p class="text-xs text-gray-500 font-medium truncate">Control de capital e inventario</p></div>
+                    <div class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-sm"><i data-lucide="shopping-bag" class="w-5 h-5"></i></div>
+                    <div><h2 class="text-xl font-bold text-gray-900">Gestión de Ventas e Inversiones</h2><p class="text-xs text-gray-500 font-medium">Control de compras, ventas y retorno de capital</p></div>
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 flex-shrink-0">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 flex flex-col justify-center">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 flex-shrink-0">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col justify-center">
                         <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1"><i data-lucide="wallet" class="w-3 h-3 text-red-500"></i> Inversión Semanal Base</span>
                         <div class="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 focus-within:border-red-500 transition-colors w-full">
                             <span class="text-gray-500 font-bold text-lg">$</span>
-                            <input id="sales-inv-input" type="number" value="${state.salesData.initialInvestment}" onchange="App.setSalesInvestment(this.value)" class="bg-transparent px-2 py-2 text-xl sm:text-2xl font-black text-gray-900 outline-none w-full" placeholder="0"/>
+                            <input id="sales-inv-input" type="number" value="${state.salesData.initialInvestment}" onchange="App.setSalesInvestment(this.value)" class="bg-transparent px-2 py-2 text-2xl font-black text-gray-900 outline-none w-full" placeholder="0"/>
                         </div>
                     </div>
                     
-                    <div class="bg-gray-900 rounded-2xl shadow-sm border border-gray-800 p-4 sm:p-5 flex flex-col justify-center">
+                    <div class="bg-gray-900 rounded-2xl shadow-sm border border-gray-800 p-5 flex flex-col justify-center">
                          <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1"><i data-lucide="database" class="w-3 h-3"></i> Capital Actual Disponible</span>
-                         <span class="text-3xl sm:text-4xl font-black text-white">$${App.formatCurrency(capitalActual)}</span>
+                         <span class="text-4xl font-black text-white">$${App.formatCurrency(capitalActual)}</span>
                     </div>
 
-                    <div class="bg-green-50 rounded-2xl shadow-sm border border-green-200 p-4 sm:p-5 flex flex-col justify-center">
+                    <div class="bg-green-50 rounded-2xl shadow-sm border border-green-200 p-5 flex flex-col justify-center">
                          <span class="text-[10px] font-black uppercase tracking-widest text-green-700 mb-2 flex items-center gap-1"><i data-lucide="trending-up" class="w-3 h-3"></i> Ganancia Neta Generada</span>
-                         <span class="text-3xl sm:text-4xl font-black text-green-600">$${App.formatCurrency(gananciaNeta)}</span>
+                         <span class="text-4xl font-black text-green-600">$${App.formatCurrency(gananciaNeta)}</span>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-hidden pb-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden min-h-[300px]">
-                        <div class="p-4 sm:p-5 border-b border-gray-100 bg-gray-50/50">
-                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs mb-4 flex items-center gap-1"><i data-lucide="tags" class="w-3.5 h-3.5 text-red-500"></i> Catálogo Rápido</h3>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-hidden">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden">
+                        <div class="p-5 border-b border-gray-100 bg-gray-50/50">
+                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs mb-4 flex items-center gap-1"><i data-lucide="tags" class="w-3.5 h-3.5 text-red-500"></i> Catálogo de Productos Rápidos</h3>
                             
                             <div class="relative w-full mb-4">
                                 <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2"></i>
                                 <input type="text" placeholder="Buscar producto/servicio..." value="${state.salesSearchQuery}" oninput="App.setSalesSearchQuery(this.value)" class="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-xs font-medium outline-none focus:border-red-400 shadow-sm transition-colors"/>
                             </div>
 
-                            <form onsubmit="App.addSalesProduct(event)" class="flex flex-col sm:flex-row gap-2 bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
-                                <input type="text" name="name" required placeholder="Producto/Servicio" class="flex-1 bg-gray-50 sm:bg-transparent rounded sm:rounded-none border-none text-[11px] font-bold outline-none px-2 py-2 sm:py-1.5 uppercase w-full"/>
-                                <div class="hidden sm:block w-px h-6 bg-gray-200 my-auto"></div>
-                                <div class="flex gap-2 w-full sm:w-auto">
-                                    <input type="number" name="cost" required placeholder="Costo $" step="0.01" class="flex-1 sm:w-20 bg-gray-50 sm:bg-transparent rounded sm:rounded-none border-none text-[11px] font-bold outline-none px-2 py-2 sm:py-1.5 text-red-500"/>
-                                    <div class="hidden sm:block w-px h-6 bg-gray-200 my-auto"></div>
-                                    <input type="number" name="price" required placeholder="Venta $" step="0.01" class="flex-1 sm:w-20 bg-gray-50 sm:bg-transparent rounded sm:rounded-none border-none text-[11px] font-bold outline-none px-2 py-2 sm:py-1.5 text-green-600"/>
-                                    <button type="submit" class="bg-red-600 text-white rounded-lg px-3 py-2 sm:py-1.5 hover:bg-red-700 transition-colors shadow-sm"><i data-lucide="plus" class="w-4 h-4"></i></button>
-                                </div>
+                            <form onsubmit="App.addSalesProduct(event)" class="flex gap-2 bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
+                                <input type="text" name="name" required placeholder="Producto/Servicio" class="flex-1 bg-transparent border-none text-[11px] font-bold outline-none px-2 py-1.5 uppercase"/>
+                                <div class="w-px h-6 bg-gray-200 my-auto"></div>
+                                <input type="number" name="cost" required placeholder="Costo $" step="0.01" class="w-20 bg-transparent border-none text-[11px] font-bold outline-none px-2 py-1.5 text-red-500"/>
+                                <div class="w-px h-6 bg-gray-200 my-auto"></div>
+                                <input type="number" name="price" required placeholder="Venta $" step="0.01" class="w-20 bg-transparent border-none text-[11px] font-bold outline-none px-2 py-1.5 text-green-600"/>
+                                <button type="submit" class="bg-red-600 text-white rounded-lg px-3 py-1.5 hover:bg-red-700 transition-colors shadow-sm"><i data-lucide="plus" class="w-4 h-4"></i></button>
                             </form>
                         </div>
                         <div class="flex-1 overflow-auto p-4 flex flex-col gap-3 custom-scrollbar">
@@ -1415,7 +1361,7 @@
                                 const filteredProducts = state.salesData.products.filter(p => p.name.toLowerCase().includes(state.salesSearchQuery.toLowerCase()));
                                 if(filteredProducts.length === 0) return '<div class="text-center text-xs font-medium text-gray-400 py-10">Sin resultados</div>';
                                 return filteredProducts.map(p => `
-                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white border border-gray-100 rounded-xl gap-3 hover:border-gray-200 transition-all shadow-sm group">
+                                <div class="flex flex-col sm:flex-row justify-between items-center p-4 bg-white border border-gray-100 rounded-xl gap-3 hover:border-gray-200 transition-all shadow-sm group">
                                     <div class="w-full sm:w-auto">
                                         <h4 class="text-sm font-black text-gray-900">${p.name}</h4>
                                         <div class="flex gap-3 text-[10px] font-bold mt-1">
@@ -1423,12 +1369,12 @@
                                             <span class="text-gray-500">Venta: <span class="text-green-600">$${p.price}</span></span>
                                         </div>
                                     </div>
-                                    <div class="flex items-center gap-2 w-full sm:w-auto opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity mt-2 sm:mt-0">
-                                        <select id="sales-client-${p.id}" class="flex-1 sm:flex-none bg-gray-50 border border-gray-200 text-gray-700 text-[10px] rounded-lg focus:ring-1 focus:ring-red-400 p-2 sm:p-1.5 outline-none font-medium">
+                                    <div class="flex items-center gap-2 w-full sm:w-auto opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <select id="sales-client-${p.id}" class="bg-gray-50 border border-gray-200 text-gray-700 text-[10px] rounded-lg focus:ring-1 focus:ring-red-400 p-1.5 outline-none font-medium">
                                             <option value="">A tabla...</option>
                                             ${state.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
                                         </select>
-                                        <button onclick="App.deleteSalesProduct(${p.id})" class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors bg-gray-50 sm:bg-transparent border border-gray-200 sm:border-transparent"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                        <button onclick="App.deleteSalesProduct(${p.id})" class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                                         <button onclick="App.recordSale(${p.id})" class="bg-gray-900 text-white text-[10px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 hover:bg-gray-800 transition-colors shadow-sm"><i data-lucide="tag" class="w-3.5 h-3.5"></i> VENDER</button>
                                     </div>
                                 </div>
@@ -1437,43 +1383,43 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden min-h-[300px]">
-                        <div class="p-4 sm:p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs flex items-center gap-1"><i data-lucide="history" class="w-3.5 h-3.5 text-gray-400"></i> Registro Ventas</h3>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-full overflow-hidden">
+                        <div class="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                            <h3 class="font-black text-gray-800 uppercase tracking-wide text-xs flex items-center gap-1"><i data-lucide="history" class="w-3.5 h-3.5 text-gray-400"></i> Registro de Ventas</h3>
                             <span class="text-[9px] font-bold bg-white border border-gray-200 shadow-sm px-2.5 py-1 rounded-md text-green-600">TOTAL: ${state.salesData.history.length}</span>
                         </div>
                         
                         <div class="flex-1 overflow-auto p-4 flex flex-col gap-3 custom-scrollbar">
                             ${state.salesData.history.map(h => `
                                 <div class="flex flex-col p-4 bg-white border border-gray-100 rounded-xl shadow-sm hover:border-gray-200 transition-colors gap-3 group relative">
-                                    <button onclick="App.deleteSaleRecord(${h.id})" class="absolute top-3 right-3 text-gray-300 hover:text-red-500 hover:bg-red-50 p-1 rounded-md transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                                    <button onclick="App.deleteSaleRecord(${h.id})" class="absolute top-3 right-3 text-gray-300 hover:text-red-500 hover:bg-red-50 p-1 rounded-md transition-colors opacity-0 group-hover:opacity-100"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
                                     
-                                    <div class="pr-6">
-                                        <p class="font-black text-gray-900 text-sm truncate">${h.productName}</p>
+                                    <div>
+                                        <p class="font-black text-gray-900 text-sm">${h.productName}</p>
                                         <p class="text-[9px] font-medium text-gray-400 mt-0.5"><i data-lucide="clock" class="w-3 h-3 inline pb-0.5"></i> ${h.date}</p>
                                     </div>
                                     
                                     <div class="flex flex-col gap-2 border-t border-gray-50 pt-3">
                                         <div class="flex items-center gap-2">
-                                            <span class="text-[9px] font-black text-gray-400 tracking-wider w-12">ESTADO:</span>
+                                            <span class="text-[9px] font-black text-gray-400 tracking-wider w-10">ESTADO:</span>
                                             <div class="flex bg-gray-100 rounded-lg p-0.5 shadow-inner border border-gray-200">
                                                 <button onclick="App.updateSaleHistory(${h.id}, 'pagado', 'si')" class="px-2 py-0.5 rounded-md text-[9px] font-bold transition-all ${h.pagado !== 'no' ? 'bg-green-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">PAGADA</button>
                                                 <button onclick="App.updateSaleHistory(${h.id}, 'pagado', 'no')" class="px-2 py-0.5 rounded-md text-[9px] font-bold transition-all ${h.pagado === 'no' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}">PENDIENTE</button>
                                             </div>
                                         </div>
-                                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div class="flex items-center justify-between">
                                             <div class="flex items-center gap-2">
-                                                <span class="text-[9px] font-black text-gray-400 w-12 tracking-wider">COSTO:</span>
-                                                <div class="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2 focus-within:border-gray-400 transition-colors w-full sm:w-auto">
+                                                <span class="text-[9px] font-black text-gray-400 w-10 tracking-wider">COSTO:</span>
+                                                <div class="flex items-center bg-gray-50 border border-gray-200 rounded-lg px-2 focus-within:border-gray-400 transition-colors">
                                                     <span class="text-red-400 font-bold text-[10px]">- $</span>
-                                                    <input type="number" value="${h.cost}" onchange="App.updateSaleHistory(${h.id}, 'cost', this.value)" class="w-full sm:w-14 bg-transparent outline-none text-xs font-bold text-gray-700 py-1 text-right" step="0.01"/>
+                                                    <input type="number" value="${h.cost}" onchange="App.updateSaleHistory(${h.id}, 'cost', this.value)" class="w-14 bg-transparent outline-none text-xs font-bold text-gray-700 py-1 text-right" step="0.01"/>
                                                 </div>
                                             </div>
                                             <div class="flex items-center gap-2">
-                                                <span class="text-[9px] font-black text-gray-400 w-12 tracking-wider">VENTA:</span>
-                                                <div class="flex items-center bg-green-50/50 border border-green-200 rounded-lg px-2 focus-within:border-green-400 transition-colors w-full sm:w-auto">
+                                                <span class="text-[9px] font-black text-gray-400 w-10 tracking-wider">VENTA:</span>
+                                                <div class="flex items-center bg-green-50/50 border border-green-200 rounded-lg px-2 focus-within:border-green-400 transition-colors">
                                                     <span class="text-green-500 font-bold text-[10px]">+ $</span>
-                                                    <input type="number" value="${h.price}" onchange="App.updateSaleHistory(${h.id}, 'price', this.value)" class="w-full sm:w-14 bg-transparent outline-none text-xs font-bold text-green-700 py-1 text-right" step="0.01"/>
+                                                    <input type="number" value="${h.price}" onchange="App.updateSaleHistory(${h.id}, 'price', this.value)" class="w-14 bg-transparent outline-none text-xs font-bold text-green-700 py-1 text-right" step="0.01"/>
                                                 </div>
                                             </div>
                                         </div>
@@ -1493,11 +1439,11 @@
 
         function renderSettings() {
             return `
-            <div class="flex flex-col gap-4 h-full max-w-2xl mx-auto w-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full max-w-2xl mx-auto w-full">
                 <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-gray-200 text-gray-700 flex items-center justify-center"><i data-lucide="settings" class="w-5 h-5"></i></div>
                 <div><h2 class="text-xl font-bold text-gray-900">Ajustes & Backups</h2></div></div>
                 
-                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                     <h3 class="font-bold text-sm mb-4">Zoom de la Interfaz</h3>
                     <div class="flex flex-col gap-2">
                         <div class="flex justify-between items-center text-xs font-bold text-gray-500">
@@ -1506,42 +1452,29 @@
                             <span>Más Zoom</span>
                         </div>
                         <input type="range" min="0.5" max="1.5" step="0.05" value="${state.zoomLevel}" onchange="App.setZoom(this.value)" class="w-full accent-red-600 outline-none"/>
-                        <p class="text-[9px] text-gray-400 text-center mt-2">El zoom manual se desactiva automáticamente en teléfonos para mantener la correcta visualización.</p>
-                        <button onclick="App.setZoom(1)" class="mt-2 text-[10px] font-bold text-red-600 hover:underline mx-auto block">Restablecer por defecto (100%)</button>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
-                    <h3 class="font-bold text-sm mb-4 flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-blue-500"></i> Nube y Telegram</h3>
-                    
-                    <button onclick="if(window.FirebaseDB) { window.FirebaseDB.save(state); this.innerHTML='<i data-lucide=\\'check\\' class=\\'w-4 h-4\\'></i> ¡Guardado!'; setTimeout(()=> { this.innerHTML='<i data-lucide=\\'cloud-upload\\' class=\\'w-4 h-4\\'></i> Forzar Sincronización'; lucide.createIcons();}, 2000); lucide.createIcons(); } else { alert('Firebase no está conectado'); }" class="w-full bg-blue-50 text-blue-600 border border-blue-200 text-xs font-bold py-2.5 rounded-lg mb-4 hover:bg-blue-100 flex justify-center items-center gap-2 transition-colors">
-                        <i data-lucide="cloud-upload" class="w-4 h-4"></i> Forzar Sincronización
-                    </button>
-
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Archivo a Telegram</button>
+                        <button onclick="App.setZoom(1)" class="mt-2 text-[10px] font-bold text-red-600 hover:underline mx-auto">Restablecer por defecto (100%)</button>
                     </div>
                 </div>
 
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                     <h3 class="font-bold text-sm mb-4">Tasas de Cambio (1 USDT)</h3>
-                    <div class="flex flex-col sm:flex-row gap-4">
+                    <div class="flex gap-4">
                         <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
                         <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
                     </div>
                 </div>
 
-                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                     <h3 class="font-bold text-sm mb-4 flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-blue-500"></i> Backups y Telegram</h3>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Todo</button>
-                        <button onclick="App.exportData('payments')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Ingresos</button>
-                        <button onclick="App.exportData('suppliers')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Egresos</button>
-                        <button onclick="App.exportData('keys')" class="col-span-2 sm:col-span-1 bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Keys Store</button>
+                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-gray-800">Exportar Todo</button>
+                        <button onclick="App.exportData('payments')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-2 rounded-lg hover:bg-gray-200">Ingresos</button>
+                        <button onclick="App.exportData('suppliers')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-2 rounded-lg hover:bg-gray-200">Egresos</button>
+                        <button onclick="App.exportData('keys')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-2 rounded-lg hover:bg-gray-200">Keys Store</button>
                     </div>
-                    <div class="relative w-full border-2 border-dashed border-gray-200 rounded-xl p-6 sm:p-4 text-center hover:bg-gray-50 transition-colors">
+                    <div class="relative w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition-colors">
                         <input type="file" accept=".json" onchange="App.restoreBackup(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
-                        <i data-lucide="upload-cloud" class="w-8 h-8 sm:w-6 sm:h-6 text-gray-400 mx-auto mb-2 sm:mb-1"></i>
+                        <i data-lucide="upload-cloud" class="w-6 h-6 text-gray-400 mx-auto mb-1"></i>
                         <span class="text-[11px] font-bold text-gray-500">Restaurar JSON (Click o Arrastrar)</span>
                     </div>
                 </div>
@@ -1550,7 +1483,7 @@
 
         function renderEntityModal() {
             return `
-            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                 <form onsubmit="App.saveEntity(event)" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
                     <h3 class="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight">Nuevo ${state.entityModal.type}</h3>
                     <div class="flex flex-col gap-3">
@@ -1558,46 +1491,50 @@
                         <div><label class="text-[10px] font-bold text-gray-400 uppercase">Moneda Base</label><select name="currency" class="w-full border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400"><option value="cop">COP</option><option value="usdt">USDT</option><option value="mxn">MXN</option></select></div>
                     </div>
                     <div class="flex gap-2 mt-6">
-                        <button type="button" onclick="App.closeEntityModal()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">Cancelar</button>
-                        <button type="submit" class="flex-1 py-3 sm:py-2 bg-gray-900 text-white rounded-lg text-xs font-bold">Guardar</button>
+                        <button type="button" onclick="App.closeEntityModal()" class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">Cancelar</button>
+                        <button type="submit" class="flex-1 py-2 bg-gray-900 text-white rounded-lg text-xs font-bold">Guardar</button>
                     </div>
                 </form>
             </div>`;
         }
 
-        function renderNextDayModal() {
+        function renderLogsModal() {
             return `
-            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl flex flex-col items-center text-center">
-                    <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-3"><i data-lucide="check-circle" class="w-6 h-6"></i></div>
-                    <h3 class="text-sm font-bold text-gray-900 mb-2">¡Guardado!</h3>
-                    <p class="text-[10px] text-gray-500 mb-4">¿Pasar al día siguiente?</p>
-                    <div class="flex gap-2 w-full">
-                        <button onclick="state.showNextDayModal=false; render()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">No</button>
-                        <button onclick="App.changeDate(1); state.showNextDayModal=false" class="flex-1 py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold">Sí, Avanzar</button>
+            <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl flex flex-col max-h-[80vh]">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                        <h3 class="text-sm font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full ${state.firebaseStatus === 'green' ? 'bg-green-500' : state.firebaseStatus === 'red' ? 'bg-red-500' : 'bg-yellow-400'}"></span> 
+                            Consola de Diagnóstico (Logs)
+                        </h3>
+                        <button onclick="state.showLogsModal=false; render()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-auto bg-gray-900 rounded-xl p-4 font-mono text-[11px] text-gray-200 custom-scrollbar flex flex-col gap-1.5 min-h-[300px]">
+                        ${state.logs.map(l => `
+                            <div class="flex gap-2 border-b border-gray-800/60 pb-1">
+                                <span class="text-gray-500">[${l.time}]</span>
+                                <span class="${l.type === 'error' ? 'text-red-400 font-bold' : 'text-green-400'}">${l.msg}</span>
+                            </div>
+                        `).join('') || '<div class="text-gray-500">Sin registros de logs aún...</div>'}
+                    </div>
+                    <div class="mt-4 flex justify-between items-center pt-3 border-t border-gray-100">
+                        <span class="text-[10px] text-gray-400 font-medium">Estado conexión: <b class="uppercase">${state.firebaseStatus}</b></span>
+                        <button onclick="state.logs=[]; render()" class="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-200">Limpiar Logs</button>
                     </div>
                 </div>
             </div>`;
         }
 
-        function renderLogsModal() {
+        function renderNextDayModal() {
             return `
-            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-xl flex flex-col h-[70vh] max-h-[600px]">
-                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
-                        <h3 class="text-sm font-black text-gray-900 uppercase tracking-tight flex items-center gap-2"><i data-lucide="terminal" class="w-4 h-4"></i> Diagnóstico de Firebase</h3>
-                        <button onclick="App.toggleLogs()" class="text-gray-400 hover:text-red-500 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
-                    </div>
-                    <div id="log-container" class="flex-1 overflow-auto bg-gray-900 rounded-xl p-3 font-mono text-[10px] sm:text-xs text-green-400 flex flex-col gap-1 custom-scrollbar">
-                        ${window.AppLogs.length === 0 ? '<span class="text-gray-500">Esperando logs...</span>' : ''}
-                        ${window.AppLogs.map(log => `
-                            <div class="${log.type === 'error' ? 'text-red-400' : 'text-green-400'} border-b border-gray-800 pb-1 mb-1 break-all">
-                                <span class="text-gray-500">[${log.time}]</span> ${log.msg}
-                            </div>
-                        `).join('')}
-                    </div>
-                    <div class="mt-4 flex gap-2">
-                         <button onclick="window.AppLogs = []; render()" class="w-full py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">Limpiar Consola</button>
+            <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl flex flex-col items-center text-center">
+                    <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-3"><i data-lucide="check-circle" class="w-6 h-6"></i></div>
+                    <h3 class="text-sm font-bold text-gray-900 mb-2">¡Guardado!</h3>
+                    <p class="text-[10px] text-gray-500 mb-4">¿Pasar al día siguiente?</p>
+                    <div class="flex gap-2 w-full">
+                        <button onclick="state.showNextDayModal=false; render()" class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">No</button>
+                        <button onclick="App.changeDate(1); state.showNextDayModal=false" class="flex-1 py-2 bg-red-600 text-white rounded-lg text-xs font-bold">Sí, Avanzar</button>
                     </div>
                 </div>
             </div>`;
@@ -1605,27 +1542,34 @@
 
         // --- STREAMING_CHUNK:Inicialización ---
         window.onload = () => { 
-            App.checkResponsive(); // Verificación inicial
-            
             window.addEventListener('firebase-error', () => {
                 state.firebaseStatus = 'red';
                 render();
             });
 
-            // Si Firebase está configurado, descargamos el estado al iniciar la app
             window.addEventListener('firebase-ready', async () => {
                 if (window.FirebaseDB) {
-                    try {
-                        const cloudState = await window.FirebaseDB.load();
+                    window.FirebaseDB.listen((cloudState) => {
                         state.firebaseStatus = 'green';
-                        console.log("Conexión confirmada exitosamente.");
                         if (cloudState) {
-                            state = { ...state, ...cloudState }; // Fusionamos el estado de la nube
+                            const localUI = {
+                                activeTab: state.activeTab,
+                                showLogsModal: state.showLogsModal,
+                                showNextDayModal: state.showNextDayModal,
+                                saveStatus: state.saveStatus,
+                                keySearchQuery: state.keySearchQuery,
+                                isSearchingKey: state.isSearchingKey,
+                                keySearchResult: state.keySearchResult,
+                                salesSearchQuery: state.salesSearchQuery,
+                                firebaseStatus: 'green',
+                                logs: state.logs
+                            };
+                            
+                            state = { ...state, ...cloudState };
+                            Object.assign(state, localUI);
                         }
-                    } catch(e) {
-                        state.firebaseStatus = 'red';
-                    }
-                    render();
+                        render();
+                    });
                 }
             });
             
