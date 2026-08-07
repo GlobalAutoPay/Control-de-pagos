@@ -1496,6 +1496,14 @@
                         <button onclick="App.exportData('suppliers')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-2 rounded-lg hover:bg-gray-200">Egresos</button>
                         <button onclick="App.exportData('keys')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-2 rounded-lg hover:bg-gray-200">Keys Store</button>
                     </div>
+                    <div class="flex flex-col gap-2 mb-4">
+                        <button onclick="window.forceSyncFromFirebase && window.forceSyncFromFirebase()" class="w-full bg-blue-600 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 shadow-sm">
+                            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Forzar Sincronización y Descargar de Firebase
+                        </button>
+                        <button onclick="state.showLogsModal=true; render()" class="w-full bg-gray-100 text-gray-700 text-xs font-bold py-2.5 rounded-lg hover:bg-gray-200 flex items-center justify-center gap-2">
+                            <i data-lucide="terminal" class="w-4 h-4"></i> Abrir Depurador de Errores en Vivo
+                        </button>
+                    </div>
                     <div class="relative w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition-colors">
                         <input type="file" accept=".json" onchange="App.restoreBackup(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
                         <i data-lucide="upload-cloud" class="w-6 h-6 text-gray-400 mx-auto mb-1"></i>
@@ -1570,6 +1578,41 @@
                 state.firebaseStatus = 'red';
                 render();
             });
+
+            window.forceSyncFromFirebase = async () => {
+                try {
+                    addLog("Forzando sincronización manual desde Firebase...", "info");
+                    const { getFirestore, doc, getDoc } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                    const db = getFirestore();
+                    const docRef = doc(db, "data", "mainState");
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const cloudState = docSnap.data();
+                        const uiProps = [
+                            'activeTab', 'showLogsModal', 'showNextDayModal', 'saveStatus',
+                            'keySearchQuery', 'isSearchingKey', 'keySearchResult',
+                            'salesSearchQuery', 'firebaseStatus', 'logs', 'zoomLevel',
+                            'estimationPeriod', 'calcState', 'generatedPassword',
+                            'passwordHistory', 'entityModal', 'tabOrder'
+                        ];
+                        const uiState = {};
+                        uiProps.forEach(k => uiState[k] = state[k]);
+                        state = { ...cloudState, ...uiState };
+                        if (!state.paymentSheets[state.activeDate]) state.paymentSheets[state.activeDate] = getEmptyRows();
+                        if (!state.supplierSheets[state.activeDate]) state.supplierSheets[state.activeDate] = getEmptyRows();
+                        render();
+                        addLog("Sincronización forzada completada con éxito.", "info");
+                        alert("¡Datos descargados y sincronizados correctamente desde la nube!");
+                    } else {
+                        addLog("No se encontraron datos previos en Firestore para sincronizar.", "error");
+                        alert("No hay datos guardados en la nube todavía.");
+                    }
+                } catch (e) {
+                    console.error("Error al forzar sync:", e);
+                    addLog("Error en sincronización forzada: " + e.message, "error");
+                    alert("Error al sincronizar. Revisa los logs.");
+                }
+            };
 
             window.addEventListener('firebase-ready', async () => {
                 if (window.FirebaseDB) {
