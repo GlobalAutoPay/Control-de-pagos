@@ -15,6 +15,7 @@
             font-family: 'Inter', sans-serif; 
             background-color: #F8F9FA; 
             zoom: var(--app-zoom); 
+            -webkit-overflow-scrolling: touch;
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -85,36 +86,71 @@
             id: Date.now() + i, cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop'
         }));
 
-        let isRemoteUpdate = false;
         let saveTimeout = null;
+        let isRemoteUpdate = false;
 
-        function saveState() {
+        function autoSave() {
             if (isRemoteUpdate) return;
             if (saveTimeout) clearTimeout(saveTimeout);
-            
             saveTimeout = setTimeout(async () => {
                 try {
                     state.saveStatus = 'saving';
                     render();
-                    
+
+                    const newClientDebts = {};
+                    state.clients.forEach(c => newClientDebts[c.id] = 0);
+                    Object.values(state.paymentSheets).forEach(rows => {
+                        rows.forEach(row => {
+                            if (row.targetId && row.pagado === 'no') {
+                                const p = parseFloat(row.precio) || 0;
+                                const client = state.clients.find(c => c.id === parseInt(row.targetId));
+                                if(client) {
+                                    const rowCurr = row.metodo || 'cop';
+                                    const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
+                                    const pClientCurr = client.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[client.currency] || 1);
+                                    if (newClientDebts[row.targetId] !== undefined) newClientDebts[row.targetId] += pClientCurr;
+                                }
+                            }
+                        });
+                    });
+                    state.clients = state.clients.map(c => ({ ...c, debt: newClientDebts[c.id] || 0 }));
+
+                    const newSupDebts = {};
+                    state.suppliers.forEach(s => newSupDebts[s.id] = 0);
+                    Object.values(state.supplierSheets).forEach(rows => {
+                        rows.forEach(row => {
+                            if (row.targetId && row.pagado === 'no') {
+                                const p = parseFloat(row.precio) || 0;
+                                const supplier = state.suppliers.find(c => c.id === parseInt(row.targetId));
+                                if(supplier) {
+                                    const rowCurr = row.metodo || 'cop';
+                                    const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
+                                    const pSupCurr = supplier.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[supplier.currency] || 1);
+                                    if (newSupDebts[row.targetId] !== undefined) newSupDebts[row.targetId] += pSupCurr;
+                                }
+                            }
+                        });
+                    });
+                    state.suppliers = state.suppliers.map(s => ({ ...s, debt: newSupDebts[s.id] || 0 }));
+
                     const cleanState = { ...state };
                     delete cleanState.showLogsModal;
                     delete cleanState.showNextDayModal;
                     delete cleanState.saveStatus;
                     
-                    if(window.FirebaseDB) {
+                    if (window.FirebaseDB) {
                         await window.FirebaseDB.save(cleanState);
                     }
-                    
+
                     state.saveStatus = 'saved';
                     render();
                     setTimeout(() => { state.saveStatus = null; render(); }, 800);
                 } catch (e) {
-                    console.error("Error al guardar automático:", e);
-                    state.saveStatus = null;
+                    console.error("Error en autoSave:", e);
+                    state.saveStatus = 'error';
                     render();
                 }
-            }, 400);
+            }, 500);
         }
 
         let state = {
@@ -153,18 +189,12 @@
                 history: []
             },
 
-            clients: [
-                { id: 1, name: 'Juan Pérez', currency: 'cop', debt: 0, type: 'cliente' },
-                { id: 2, name: 'María Gómez', currency: 'usdt', debt: 0, type: 'cliente' },
-                { id: 3, name: 'Carlos Rodríguez', currency: 'mxn', debt: 0, type: 'cliente' }
-            ],
-            suppliers: [
-                { id: 1, name: 'Hosting AWS', currency: 'usdt', debt: 0, type: 'proveedor' }
-            ],
+            clients: [],
+            suppliers: [],
             memberships: [],
             exchangeRates: { cop: 4000, mxn: 17, usdt: 1 },
-            paymentSheets: { [new Date().toISOString().split('T')[0]]: getEmptyRows() },
-            supplierSheets: { [new Date().toISOString().split('T')[0]]: getEmptyRows() }
+            paymentSheets: {},
+            supplierSheets: {}
         };
 
         const App = {};
@@ -225,15 +255,15 @@
             }
         }
 
-        App.setActiveTab = (tab) => { state.activeTab = tab; render(); saveState(); };
-        App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); saveState(); };
+        App.setActiveTab = (tab) => { state.activeTab = tab; render(); autoSave(); };
+        App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); autoSave(); };
         
         App.setZoom = (val) => {
             document.documentElement.style.setProperty('--app-zoom', val);
             localStorage.setItem('yetta_zoom', val);
             state.zoomLevel = val;
             render();
-            saveState();
+            autoSave();
         };
 
         App.handleDragStart = (e, id) => { 
@@ -253,7 +283,7 @@
                 newOrder.splice(targetIndex, 0, sourceId);
                 state.tabOrder = newOrder;
                 render();
-                saveState();
+                autoSave();
             }
         };
 
@@ -288,7 +318,7 @@
             if(!state.paymentSheets[state.activeDate]) state.paymentSheets[state.activeDate] = getEmptyRows();
             if(!state.supplierSheets[state.activeDate]) state.supplierSheets[state.activeDate] = getEmptyRows();
             render();
-            saveState();
+            autoSave();
         };
 
         App.addRow = (sheetType) => {
@@ -296,7 +326,7 @@
             if(!targetSheet[state.activeDate]) targetSheet[state.activeDate] = [];
             targetSheet[state.activeDate].push({ id: Date.now(), cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop' });
             render();
-            saveState();
+            autoSave();
         };
 
         App.removeRow = (sheetType, index) => {
@@ -304,7 +334,7 @@
              if(targetSheet[state.activeDate] && targetSheet[state.activeDate].length > 1) {
                   targetSheet[state.activeDate].splice(index, 1);
                   render();
-                  saveState();
+                  autoSave();
              }
         };
 
@@ -400,49 +430,13 @@
                 if (entity) currentRows[index].metodo = entity.currency;
             }
             render();
-            saveState();
+            autoSave();
         };
 
         App.handleSaveAndCalculate = () => {
-            const newClientDebts = {};
-            state.clients.forEach(c => newClientDebts[c.id] = 0);
-            Object.values(state.paymentSheets).forEach(rows => {
-                rows.forEach(row => {
-                    if (row.targetId && row.pagado === 'no') {
-                        const p = parseFloat(row.precio) || 0;
-                        const client = state.clients.find(c => c.id === parseInt(row.targetId));
-                        if(client) {
-                            const rowCurr = row.metodo || 'cop';
-                            const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
-                            const pClientCurr = client.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[client.currency] || 1);
-                            if (newClientDebts[row.targetId] !== undefined) newClientDebts[row.targetId] += pClientCurr;
-                        }
-                    }
-                });
-            });
-            state.clients = state.clients.map(c => ({ ...c, debt: newClientDebts[c.id] || 0 }));
-
-            const newSupDebts = {};
-            state.suppliers.forEach(s => newSupDebts[s.id] = 0);
-            Object.values(state.supplierSheets).forEach(rows => {
-                rows.forEach(row => {
-                    if (row.targetId && row.pagado === 'no') {
-                        const p = parseFloat(row.precio) || 0;
-                        const supplier = state.suppliers.find(c => c.id === parseInt(row.targetId));
-                        if(supplier) {
-                            const rowCurr = row.metodo || 'cop';
-                            const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
-                            const pSupCurr = supplier.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[supplier.currency] || 1);
-                            if (newSupDebts[row.targetId] !== undefined) newSupDebts[row.targetId] += pSupCurr;
-                        }
-                    }
-                });
-            });
-            state.suppliers = state.suppliers.map(s => ({ ...s, debt: newSupDebts[s.id] || 0 }));
-
-            saveState();
             state.showNextDayModal = true;
             render();
+            autoSave();
         };
 
         // --- STREAMING_CHUNK:Utilidades y Funciones Menores ---
@@ -453,7 +447,7 @@
             for (let i = 0; i < 4; i++) randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
             state.generatedPassword = prefix + randomPart;
             render();
-            saveState();
+            autoSave();
         };
 
         App.copyPassword = () => {
@@ -464,7 +458,7 @@
                     if(state.passwordHistory.length > 5) state.passwordHistory.pop();
                 }
                 render();
-                saveState();
+                autoSave();
             });
         };
 
@@ -490,11 +484,11 @@
                 state.keysStore.push({ sn, key });
                 e.target.reset();
                 render();
-                saveState();
+                autoSave();
             }
         };
 
-        App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); saveState(); };
+        App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); autoSave(); };
         App.setSalesSearchQuery = (val) => { state.salesSearchQuery = val; render(); };
 
         App.addSalesProduct = (e) => {
@@ -506,11 +500,11 @@
                 state.salesData.products.push({ id: Date.now(), name, cost, price });
                 e.target.reset();
                 render();
-                saveState();
+                autoSave();
             }
         };
 
-        App.deleteSalesProduct = (id) => { state.salesData.products = state.salesData.products.filter(p => p.id !== id); render(); saveState(); };
+        App.deleteSalesProduct = (id) => { state.salesData.products = state.salesData.products.filter(p => p.id !== id); render(); autoSave(); };
 
         App.updateSaleHistory = (id, field, value) => {
             const index = state.salesData.history.findIndex(h => h.id === id);
@@ -522,7 +516,7 @@
                     state.salesData.history[index][field] = numValue;
                 }
                 render();
-                saveState();
+                autoSave();
             }
         };
 
@@ -559,11 +553,11 @@
                 
                 if(clientSelect) clientSelect.value = '';
                 render();
-                saveState();
+                autoSave();
             }
         };
 
-        App.deleteSaleRecord = (id) => { state.salesData.history = state.salesData.history.filter(h => h.id !== id); render(); saveState(); };
+        App.deleteSaleRecord = (id) => { state.salesData.history = state.salesData.history.filter(h => h.id !== id); render(); autoSave(); };
 
         App.openEntityModal = (type) => { state.entityModal = { show: true, type }; render(); };
         App.closeEntityModal = () => { state.entityModal.show = false; render(); };
@@ -576,14 +570,14 @@
                 if(state.entityModal.type === 'cliente') state.clients.push(newEntity);
                 else state.suppliers.push(newEntity);
                 App.closeEntityModal();
-                saveState();
+                autoSave();
             }
         };
         App.deleteEntity = (type, id) => {
             if(type === 'cliente') state.clients = state.clients.filter(c => c.id !== id);
             else state.suppliers = state.suppliers.filter(s => s.id !== id);
             render();
-            saveState();
+            autoSave();
         };
 
         App.addMembership = (e) => {
@@ -598,10 +592,10 @@
                 state.memberships.push({ id: Date.now(), clientId, plan, amount, currency, nextBilling, status: 'activa' });
                 e.target.reset();
                 render();
-                saveState();
+                autoSave();
             }
         };
-        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); render(); saveState(); };
+        App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); render(); autoSave(); };
 
         App.setCalcBase = (base) => { state.calcState.displayBase = base; render(); };
         App.calcInput = (char) => {
@@ -630,7 +624,7 @@
                         const restored = JSON.parse(event.target.result);
                         state = { ...state, ...restored, activeTab: 'dashboard' };
                         render();
-                        saveState();
+                        autoSave();
                     } catch (err) {
                         console.error(err);
                     }
@@ -1489,8 +1483,8 @@
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                     <h3 class="font-bold text-sm mb-4">Tasas de Cambio (1 USDT)</h3>
                     <div class="flex gap-4">
-                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render(); saveState();" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
-                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render(); saveState();" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render(); autoSave();" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render(); autoSave();" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
                     </div>
                 </div>
 
@@ -1579,26 +1573,54 @@
 
             window.addEventListener('firebase-ready', async () => {
                 if (window.FirebaseDB) {
-                    window.FirebaseDB.listen(async (cloudData) => {
+                    let firstSnapshot = true;
+                    window.FirebaseDB.listen(async (cloudState) => {
                         state.firebaseStatus = 'green';
-                        if (cloudData) {
+                        if (cloudState && Object.keys(cloudState).length > 0) {
                             isRemoteUpdate = true;
-                            // Mantener configuraciones locales de UI pero actualizar los datos reales
-                            const uiKeys = ['activeTab','showLogsModal','showNextDayModal','saveStatus','keySearchQuery','isSearchingKey','keySearchResult','salesSearchQuery','firebaseStatus','logs','zoomLevel','estimationPeriod','calcState','generatedPassword','passwordHistory','entityModal','tabOrder'];
+                            const uiProps = [
+                                'activeTab', 'showLogsModal', 'showNextDayModal', 'saveStatus',
+                                'keySearchQuery', 'isSearchingKey', 'keySearchResult',
+                                'salesSearchQuery', 'firebaseStatus', 'logs', 'zoomLevel',
+                                'estimationPeriod', 'calcState', 'generatedPassword',
+                                'passwordHistory', 'entityModal', 'tabOrder'
+                            ];
                             const uiState = {};
-                            uiKeys.forEach(k => uiState[k] = state[k]);
+                            uiProps.forEach(k => uiState[k] = state[k]);
                             
-                            state = { ...cloudData, ...uiState };
+                            state = { ...cloudState, ...uiState };
+
+                            if (!state.paymentSheets[state.activeDate]) {
+                                state.paymentSheets[state.activeDate] = getEmptyRows();
+                            }
+                            if (!state.supplierSheets[state.activeDate]) {
+                                state.supplierSheets[state.activeDate] = getEmptyRows();
+                            }
+                            
                             isRemoteUpdate = false;
                             render();
                         } else {
-                            // Si Firestore está vacío, guardamos el estado actual por defecto en la nube
-                            const cleanState = { ...state };
-                            delete cleanState.showLogsModal;
-                            delete cleanState.showNextDayModal;
-                            delete cleanState.saveStatus;
-                            await window.FirebaseDB.save(cleanState);
-                            render();
+                            if (firstSnapshot) {
+                                console.log("Primera carga: creando estado inicial...");
+                                state.clients = [
+                                    { id: 1, name: 'Juan Pérez', currency: 'cop', debt: 0, type: 'cliente' },
+                                    { id: 2, name: 'María Gómez', currency: 'usdt', debt: 0, type: 'cliente' },
+                                    { id: 3, name: 'Carlos Rodríguez', currency: 'mxn', debt: 0, type: 'cliente' }
+                                ];
+                                state.suppliers = [
+                                    { id: 1, name: 'Hosting AWS', currency: 'usdt', debt: 0, type: 'proveedor' }
+                                ];
+                                state.paymentSheets[state.activeDate] = getEmptyRows();
+                                state.supplierSheets[state.activeDate] = getEmptyRows();
+                                
+                                const cleanState = { ...state };
+                                delete cleanState.showLogsModal;
+                                delete cleanState.showNextDayModal;
+                                delete cleanState.saveStatus;
+                                await window.FirebaseDB.save(cleanState);
+                                firstSnapshot = false;
+                                render();
+                            }
                         }
                     });
                 }
