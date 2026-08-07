@@ -44,40 +44,80 @@
         <!-- Reactivity Root -->
     </div>
 
+    <!-- Interceptor de Logs para Diagnóstico -->
+    <script>
+        window.AppLogs = [];
+        const origLog = console.log;
+        const origErr = console.error;
+        console.log = function(...args) {
+            window.AppLogs.push({ type: 'info', msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '), time: new Date().toLocaleTimeString() });
+            origLog.apply(console, args);
+            // Auto-render si el modal está abierto
+            const logContainer = document.getElementById('log-container');
+            if (logContainer) logContainer.innerHTML = window.AppLogs.map(l => `<div class="${l.type === 'error' ? 'text-red-400' : 'text-green-400'} border-b border-gray-800 pb-1 mb-1"><span class="text-gray-500">[${l.time}]</span> ${l.msg}</div>`).join('');
+        };
+        console.error = function(...args) {
+            window.AppLogs.push({ type: 'error', msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '), time: new Date().toLocaleTimeString() });
+            origErr.apply(console, args);
+            const logContainer = document.getElementById('log-container');
+            if (logContainer) logContainer.innerHTML = window.AppLogs.map(l => `<div class="${l.type === 'error' ? 'text-red-400' : 'text-green-400'} border-b border-gray-800 pb-1 mb-1"><span class="text-gray-500">[${l.time}]</span> ${l.msg}</div>`).join('');
+        };
+    </script>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
-            authDomain: "yettadashboard.firebaseapp.com",
-            projectId: "yettadashboard",
-            storageBucket: "yettadashboard.firebasestorage.app",
-            messagingSenderId: "925942578448",
-            appId: "1:925942578448:web:3e4987c3601ce225e3f995"
-        };
+        console.log("Iniciando configuración de Firebase...");
+        try {
+            const firebaseConfig = {
+                apiKey: "AIzaSyDlqGtCyAHidzZiHuuHu5psm9sGayDfupY",
+                authDomain: "yettadashboard.firebaseapp.com",
+                projectId: "yettadashboard",
+                storageBucket: "yettadashboard.firebasestorage.app",
+                messagingSenderId: "925942578448",
+                appId: "1:925942578448:web:3e4987c3601ce225e3f995"
+            };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        // Guarda todo el estado en un solo documento para mayor simpleza
-        const docRef = doc(db, "yetta_db", "main_state");
+            const app = initializeApp(firebaseConfig);
+            const db = getFirestore(app);
+            // Guarda todo el estado en un solo documento para mayor simpleza
+            const docRef = doc(db, "yetta_db", "main_state");
+            console.log("Firebase inicializado correctamente. Base de datos vinculada.");
 
-        window.FirebaseDB = {
-            save: async (data) => {
-                try { await setDoc(docRef, data); console.log("Nube: Sincronización exitosa"); } 
-                catch(e) { console.error("Nube Error (Guardar):", e); }
-            },
-            load: async () => {
-                try { 
-                    const snap = await getDoc(docRef); 
-                    if (snap.exists()) return snap.data(); 
-                } 
-                catch(e) { console.error("Nube Error (Cargar):", e); }
-                return null;
-            }
-        };
+            window.FirebaseDB = {
+                save: async (data) => {
+                    try { 
+                        console.log("Iniciando sincronización (guardado)...");
+                        await setDoc(docRef, data); 
+                        console.log("Nube: Sincronización exitosa"); 
+                    } 
+                    catch(e) { console.error("Nube Error Crítico (Guardar):", e.message || e); }
+                },
+                load: async () => {
+                    try { 
+                        console.log("Solicitando datos a Firestore...");
+                        const snap = await getDoc(docRef); 
+                        if (snap.exists()) {
+                            console.log("Datos encontrados y descargados.");
+                            return snap.data(); 
+                        } else {
+                            console.log("Base de datos conectada, pero no hay datos previos (documento vacío).");
+                        }
+                    } 
+                    catch(e) { 
+                        console.error("Nube Error Crítico (Cargar):", e.message || e); 
+                        throw e;
+                    }
+                    return null;
+                }
+            };
 
-        window.dispatchEvent(new Event('firebase-ready'));
+            window.dispatchEvent(new Event('firebase-ready'));
+        } catch(e) {
+            console.error("Error al inicalizar Firebase. Revisa la configuración:", e.message || e);
+            window.dispatchEvent(new Event('firebase-error'));
+        }
     </script>
 
     <script>
@@ -93,6 +133,8 @@
             activeTab: 'dashboard',
             activeDate: new Date().toISOString().split('T')[0],
             showNextDayModal: false,
+            showLogsModal: false,
+            firebaseStatus: 'yellow',
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
@@ -185,6 +227,7 @@
                 ${renderMobileNav()}
                 ${state.showNextDayModal ? renderNextDayModal() : ''}
                 ${state.entityModal.show ? renderEntityModal() : ''}
+                ${state.showLogsModal ? renderLogsModal() : ''}
             `;
             lucide.createIcons();
 
@@ -229,6 +272,8 @@
                 render();
             }
         };
+
+        App.toggleLogs = () => { state.showLogsModal = !state.showLogsModal; render(); };
 
         // --- STREAMING_CHUNK:Definiendo Funciones Financieras ---
         App.formatCurrency = (value, currency = 'usdt') => {
@@ -741,6 +786,7 @@
         }
 
         function renderHeader() {
+            const fbColor = state.firebaseStatus === 'green' ? 'bg-green-500' : (state.firebaseStatus === 'red' ? 'bg-red-500' : 'bg-yellow-500');
             return `
             <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex-shrink-0 mx-2 mt-2 sm:mx-0 sm:mt-0">
                 <div>
@@ -748,6 +794,13 @@
                     <p class="text-gray-400 text-[11px] mt-0.5 font-medium">Sistema de Gestión Operativa</p>
                 </div>
                 <div class="flex items-center gap-3">
+                    <button onclick="App.toggleLogs()" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 rounded-lg text-xs font-bold text-gray-600 border border-gray-200 hover:bg-gray-100 transition-colors" title="Ver logs de conexión">
+                        <span class="relative flex h-2.5 w-2.5">
+                          ${state.firebaseStatus === 'yellow' ? `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>` : ''}
+                          <span class="relative inline-flex rounded-full h-2.5 w-2.5 ${fbColor}"></span>
+                        </span>
+                        Logs
+                    </button>
                     <div class="relative flex items-center w-full sm:w-auto">
                         <input type="text" placeholder="Buscar registros..." class="pl-4 pr-10 py-2 bg-gray-50 rounded-lg text-xs outline-none w-full sm:w-48 border border-gray-200 focus:border-red-400 transition-colors"/>
                         <i data-lucide="search" class="absolute right-3 w-3.5 h-3.5 text-gray-400"></i>
@@ -1527,18 +1580,52 @@
             </div>`;
         }
 
+        function renderLogsModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl p-4 w-full max-w-lg shadow-xl flex flex-col h-[70vh] max-h-[600px]">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
+                        <h3 class="text-sm font-black text-gray-900 uppercase tracking-tight flex items-center gap-2"><i data-lucide="terminal" class="w-4 h-4"></i> Diagnóstico de Firebase</h3>
+                        <button onclick="App.toggleLogs()" class="text-gray-400 hover:text-red-500 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    </div>
+                    <div id="log-container" class="flex-1 overflow-auto bg-gray-900 rounded-xl p-3 font-mono text-[10px] sm:text-xs text-green-400 flex flex-col gap-1 custom-scrollbar">
+                        ${window.AppLogs.length === 0 ? '<span class="text-gray-500">Esperando logs...</span>' : ''}
+                        ${window.AppLogs.map(log => `
+                            <div class="${log.type === 'error' ? 'text-red-400' : 'text-green-400'} border-b border-gray-800 pb-1 mb-1 break-all">
+                                <span class="text-gray-500">[${log.time}]</span> ${log.msg}
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="mt-4 flex gap-2">
+                         <button onclick="window.AppLogs = []; render()" class="w-full py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">Limpiar Consola</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
         // --- STREAMING_CHUNK:Inicialización ---
         window.onload = () => { 
             App.checkResponsive(); // Verificación inicial
             
+            window.addEventListener('firebase-error', () => {
+                state.firebaseStatus = 'red';
+                render();
+            });
+
             // Si Firebase está configurado, descargamos el estado al iniciar la app
             window.addEventListener('firebase-ready', async () => {
                 if (window.FirebaseDB) {
-                    const cloudState = await window.FirebaseDB.load();
-                    if (cloudState) {
-                        state = { ...state, ...cloudState }; // Fusionamos el estado de la nube
-                        render();
+                    try {
+                        const cloudState = await window.FirebaseDB.load();
+                        state.firebaseStatus = 'green';
+                        console.log("Conexión confirmada exitosamente.");
+                        if (cloudState) {
+                            state = { ...state, ...cloudState }; // Fusionamos el estado de la nube
+                        }
+                    } catch(e) {
+                        state.firebaseStatus = 'red';
                     }
+                    render();
                 }
             });
             
