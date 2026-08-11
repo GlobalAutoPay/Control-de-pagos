@@ -15,12 +15,10 @@
             font-family: 'Inter', sans-serif; 
             background-color: #F8F9FA; 
             zoom: var(--app-zoom); 
-            /* Previene rebotes extraños en móviles */
             overscroll-behavior-y: none;
         }
-        /* Scrollbar personalizado y suave para móviles */
         .custom-scrollbar {
-            -webkit-overflow-scrolling: touch; /* Scroll suave en iOS/Android */
+            -webkit-overflow-scrolling: touch; 
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -31,7 +29,6 @@
         input[type=number] { -moz-appearance: textfield; }
         input::-webkit-calendar-picker-indicator { display: none !important; }
         
-        /* Ajuste para altura real en móviles */
         .h-screen-mobile {
             height: 100vh;
             height: 100dvh;
@@ -54,17 +51,24 @@
 
         const todayStr = new Date().toISOString().split('T')[0];
 
-        // Se define el estado inicial por defecto por separado para poder cruzarlo con el localStorage
         const defaultState = {
             zoomLevel: savedZoom,
             activeTab: 'dashboard',
             activeDate: todayStr,
             showNextDayModal: false,
-            showResetModal: false, // Nuevo estado para el modal de reset
+            showResetModal: false, 
+            showWeeklyConfigModal: false, // Nuevo estado para modal de configuración semanal
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
             tabOrder: ['dashboard', 'suppliers', 'memberships', 'users', 'tools', 'calculator', 'sales', 'settings'],
+
+            weeklyCycle: {
+                isConfigured: false,
+                startDay: 1, // Lunes por defecto
+                endDay: 0, // Domingo por defecto
+                currentStartDate: todayStr
+            },
 
             entityModal: { show: false, type: 'cliente' },
             calcState: { displayBase: 'USDT', baseValue: '' },
@@ -79,70 +83,7 @@
                 { sn: "AC3N6R4C11008453", key: "CF7LY96LZ315WL34FRP" },
                 { sn: "A7RM6R5103003989", key: "DQE5TSJC5YFSHCMAFRP" },
                 { sn: "ASXX6R5221001418", key: "318LXU0A5DNULN7AFRP" },
-                { sn: "AF6RUT5626000482", key: "RD73G578DJVT9WZXFRP" },
-                { sn: "A9FR6R4227002425", key: "U12Q5ZQ07S95WLHZ" },
-                { sn: "A9FRUT4912003626", key: "93M2N3CUKELCH7L0" },
-                { sn: "AC3N6R4C09002655", key: "EFPGD06GXA0HIRII" },
-                { sn: "A9FR6R4704004165", key: "66A6U5C09BOPD84L" },
-                { sn: "AW9D6R4A17002292", key: "A9YMTIU0SP3U19ZP" },
-                { sn: "AYCQCP4A03401879", key: "27SA75JGE8HBG14B" },
-                { sn: "AWNQCP3926206816", key: "K59BL175L593A4OL" },
-                { sn: "AW9D6R4415003286", key: "Q6SB61TLEN6KBR5V" },
-                { sn: "AKJDCP3A12203587", key: "6BW4603F3YWO7683" },
-                { sn: "A34N6R4118001756", key: "S550D0C8CYXQU8F1" },
-                { sn: "AM7XCP5104202156", key: "X4550J25LISY5J98" },
-                { sn: "AH7BJV5819G09806", key: "FC2Y10JTA2ZIW6BL" },
-                { sn: "AC3N6R5808000101", key: "66VEQNP22AVSTH69" },
-                { sn: "ASXX6R5514011363", key: "1WBV1SBN27QHOVPQ" },
-                { sn: "ACNNBB4A23903148", key: "RQRQDCVN6K09BN5E" },
-                { sn: "AG4PCP5526404794", key: "66C38C7H70S3402W" },
-                { sn: "A7RM6R5310001855", key: "WNH32N36AAQQX0W4" },
-                { sn: "A9FR6R4B15005735", key: "NOA2U3HG33U6N14A" },
-                { sn: "AXCLCP4913404860", key: "18Z9PVMSDL79S500" },
-                { sn: "ABSGBB5124907990", key: "3AYCZ8T88LITFZA5" },
-                { sn: "A97JCP4B25400971", key: "ELA5CCF4M760QLO1" },
-                { sn: "AM7XCP4912400026", key: "87QB0NO7ADX813X7" },
-                { sn: "ACNNBB5410900616", key: "Y52VBU23VIB4UWHJ" },
-                { sn: "A5CS024205002346", key: "AKFKRREFA6R2M1QI" },
-                { sn: "AM4L6R4A11001414", key: "AHJWAVQ0XJOL7N12" },
-                { sn: "AXUG025707001180", key: "HCQL8AY86FVXEAVX" },
-                { sn: "AM4LVB4905001273", key: "KUQ30NM20IJ74HG2" },
-                { sn: "AM4L6R5221000871", key: "1XD0L4EBOWOBLEIP" },
-                { sn: "AYCQCP5512400976", key: "6T0A15NM2KY63236" },
-                { sn: "AC3N6R5226001090", key: "098G94Q89IZS8IWX" },
-                { sn: "A97JCP5627404627", key: "LQ77U30T5R2M801G" },
-                { sn: "A34N6R4116003882", key: "OJB3KPNW208KQ9DP" },
-                { sn: "A9FR6R4705002930", key: "NSTWDLM3UAH8BHA1" },
-                { sn: "APVL6R5414001299", key: "ID5TTGZTGQGW78A2" },
-                { sn: "ARUKCP3C08402190", key: "W650256C6ZRZ9Y2G" },
-                { sn: "A9FRUT4407000818", key: "7CZ5W7Z21BXPBUWA" },
-                { sn: "A34N6R4116018558", key: "E5N24XZ6BXP04LLW" },
-                { sn: "AWNQCP3724203247", key: "V7IOH42Z2J02GC5Z" },
-                { sn: "AWNQCP2A08204971", key: "ELU60G91F8445KG8" },
-                { sn: "AXCC6R3919022405", key: "CW1OC9X2V786M1G6" },
-                { sn: "APEYCP3505200026", key: "31937IR061355CYK" },
-                { sn: "AXCC6R3919001347", key: "FZC2Y2DYQKH0O161" },
-                { sn: "AGRY6R3908001589", key: "KPMVNUUZI3F74CHX" },
-                { sn: "ABKYCP4904401856", key: "TDBTI8ZO8I79BC78" },
-                { sn: "A9FRUT4920003636", key: "X3RIUX0N67MSJE5C" },
-                { sn: "AYDL024103000354", key: "WBHETQ29KMQEJ9C5" },
-                { sn: "AW9D6R4429000178", key: "05TT10COY3SFB0RR" },
-                { sn: "AYDLV83922005061", key: "INH210HSEXN146MP" },
-                { sn: "AF2SV83907001321", key: "312ZX31UAL3G591Y" },
-                { sn: "AYDLVB3630011845", key: "EZQXG9JDLYFQ7QR0" },
-                { sn: "ABSGBB4B05900763", key: "41SFZT14TZ12SD0B" },
-                { sn: "AWNQCP3612205207", key: "M1P91Q2W3QN45501" },
-                { sn: "AYAV6R3621002625", key: "SN3YEDQSOEAEYEGE" },
-                { sn: "A7RM6R5310001641", key: "Z405SJH6XF0LSF9M" },
-                { sn: "A7RM6R5219002707", key: "WHTSE6ULG5M04983" },
-                { sn: "AVFGCP4131404056", key: "P90Y05OXMWW6GECR" },
-                { sn: "AETJCP5411400340", key: "7CVV5E6TQX0V0HMG" },
-                { sn: "AX6F6R5A13007110", key: "7110 V149AEXAV8PBKKSE" },
-                { sn: "AYDLVB3825001420", key: "H595YIXAWTVOE7CF" },
-                { sn: "AM4L6R5305002443", key: "ZU6COP1J8VCCQYEN" },
-                { sn: "VA9FRUT4926002111", key: "QL099A20L016R6H3" },
-                { sn: "AH8MUT3629000351", key: "UU0ZBMI9YW55RKQN" },
-                { sn: "AWCX6R3B17004912", key: "J2OXF2S5R5RRVAJ1" }
+                { sn: "AF6RUT5626000482", key: "RD73G578DJVT9WZXFRP" }
             ],
 
             salesSearchQuery: '',
@@ -166,9 +107,7 @@
             supplierSheets: { [todayStr]: getEmptyRows() }
         };
 
-        // Instanciamos el state global
         let state = { ...defaultState };
-
         const LOCAL_DB_KEY = 'yetta_local_database';
 
         function loadLocalDatabase() {
@@ -176,18 +115,17 @@
                 const savedData = localStorage.getItem(LOCAL_DB_KEY);
                 if (savedData) {
                     const parsedData = JSON.parse(savedData);
-                    // Mezclamos el state default con los datos de localStorage
                     state = { ...defaultState, ...parsedData };
                     
-                    // Asegurarnos de que el día de hoy existe aunque la bd sea de ayer
+                    if (!state.weeklyCycle) state.weeklyCycle = { isConfigured: false, startDay: 1, endDay: 0, currentStartDate: todayStr };
                     if (!state.paymentSheets[todayStr]) state.paymentSheets[todayStr] = getEmptyRows();
                     if (!state.supplierSheets[todayStr]) state.supplierSheets[todayStr] = getEmptyRows();
                     
-                    // Al cargar siempre mandamos al usuario al dashboard en el día actual
                     state.activeTab = 'dashboard';
                     state.activeDate = todayStr;
                     state.showNextDayModal = false;
                     state.showResetModal = false;
+                    state.showWeeklyConfigModal = false;
                     state.saveStatus = null;
                 }
             } catch (e) {
@@ -203,7 +141,6 @@
             }
         }
 
-        // Cargamos los datos apenas inicia el script
         loadLocalDatabase();
 
         const App = {};
@@ -226,7 +163,6 @@
             if (isRendering) return;
             isRendering = true;
             
-            // Guardamos localmente en CADA CAMBIO DE ESTADO justo antes de renderizar
             saveLocalDatabase();
 
             requestAnimationFrame(() => {
@@ -253,6 +189,7 @@
                     ${state.showNextDayModal ? renderNextDayModal() : ''}
                     ${state.entityModal.show ? renderEntityModal() : ''}
                     ${state.showResetModal ? renderResetModal() : ''}
+                    ${state.showWeeklyConfigModal ? renderWeeklyConfigModal() : ''}
                 `;
                 lucide.createIcons();
 
@@ -367,24 +304,38 @@
         };
 
         App.getWeeklyStats = (sheetType = 'payments') => {
-            const today = new Date(state.activeDate + 'T00:00:00');
-            const dayOfWeek = today.getDay();
-            const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-            
-            const startOfWeek = new Date(today);
-            startOfWeek.setDate(diffToMonday);
-            startOfWeek.setHours(0, 0, 0, 0);
-
-            const endOfWeek = new Date(startOfWeek);
-            endOfWeek.setDate(startOfWeek.getDate() + 6);
-            endOfWeek.setHours(23, 59, 59, 999);
-
             const totals = { cop: 0, usdt: 0, mxn: 0 };
             const sheets = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
             
+            let startDate;
+            if (state.weeklyCycle && state.weeklyCycle.isConfigured) {
+                // Si el ciclo semanal esta configurado, calculamos desde su fecha de inicio sin reiniciar
+                startDate = new Date(state.weeklyCycle.currentStartDate + 'T00:00:00');
+            } else {
+                // Lógica legacy por defecto (Lunes a Domingo)
+                const today = new Date(state.activeDate + 'T00:00:00');
+                const dayOfWeek = today.getDay();
+                const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                startDate = new Date(today);
+                startDate.setDate(diffToMonday);
+                startDate.setHours(0, 0, 0, 0);
+            }
+
             Object.keys(sheets).forEach(dateStr => {
                 const sheetDate = new Date(dateStr + 'T00:00:00');
-                if (sheetDate >= startOfWeek && sheetDate <= endOfWeek) {
+                
+                let isValidDate = false;
+                if (state.weeklyCycle && state.weeklyCycle.isConfigured) {
+                    // Solo sumar fechas desde que inició la configuración actual, evitando limites artificiales.
+                    isValidDate = sheetDate >= startDate; 
+                } else {
+                    const endOfWeek = new Date(startDate);
+                    endOfWeek.setDate(startDate.getDate() + 6);
+                    endOfWeek.setHours(23, 59, 59, 999);
+                    isValidDate = sheetDate >= startDate && sheetDate <= endOfWeek;
+                }
+
+                if (isValidDate) {
                     sheets[dateStr].forEach(row => {
                         const precio = parseFloat(row.precio) || 0;
                         if (precio > 0 && row.pagado === 'si') totals[row.metodo || 'cop'] += precio;
@@ -445,7 +396,6 @@
             state.saveStatus = 'saving';
             render();
             
-            // Recalcular deuda clientes global
             const newClientDebts = {};
             state.clients.forEach(c => newClientDebts[c.id] = 0);
             Object.values(state.paymentSheets).forEach(rows => {
@@ -464,7 +414,6 @@
             });
             state.clients = state.clients.map(c => ({ ...c, debt: newClientDebts[c.id] || 0 }));
 
-            // Recalcular deuda proveedores global
             const newSupDebts = {};
             state.suppliers.forEach(s => newSupDebts[s.id] = 0);
             Object.values(state.supplierSheets).forEach(rows => {
@@ -663,7 +612,7 @@
                     try {
                         const restored = JSON.parse(event.target.result);
                         state = { ...state, ...restored, activeTab: 'dashboard' };
-                        saveLocalDatabase(); // Guardar tras la restauración para que perdure
+                        saveLocalDatabase();
                         render();
                     } catch (err) {
                         console.error(err);
@@ -699,6 +648,21 @@
             if(type === 'suppliers') data = state.supplierSheets;
             if(type === 'keys') data = state.keysStore;
             App.sendToTelegram(data, `backup_${type}.json`, `Backup manual: ${type}`);
+        };
+
+        App.openWeeklyConfigModal = () => { state.showWeeklyConfigModal = true; render(); };
+        App.closeWeeklyConfigModal = () => { state.showWeeklyConfigModal = false; render(); };
+        App.saveWeeklyConfig = (e) => {
+            e.preventDefault();
+            const startDay = parseInt(e.target.startDay.value);
+            const endDay = parseInt(e.target.endDay.value);
+            state.weeklyCycle = {
+                isConfigured: true,
+                startDay: startDay,
+                endDay: endDay,
+                currentStartDate: state.activeDate // Se reinicia el cálculo a partir de la fecha seleccionada
+            };
+            App.closeWeeklyConfigModal();
         };
 
         App.generateInvoiceAndSend = async (id, type = 'cliente') => {
@@ -771,7 +735,6 @@
             }
         };
 
-        // Nuevas funciones para reiniciar la base de datos local
         App.openResetModal = () => { state.showResetModal = true; render(); };
         App.closeResetModal = () => { state.showResetModal = false; render(); };
         App.confirmReset = () => {
@@ -870,6 +833,15 @@
             };
             const estTotal = est.usdt + (est.cop / state.exchangeRates.cop) + (est.mxn / state.exchangeRates.mxn);
 
+            // Determinar si debemos mostrar el botón para configurar o reiniciar la semana en la card
+            const currentDayOfWeek = today.getDay();
+            let weekConfigBtnHtml = '';
+            if (!state.weeklyCycle?.isConfigured) {
+                 weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 text-[9px] font-bold py-1.5 rounded transition-colors flex items-center justify-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> Configurar Semana</button>`;
+            } else if (currentDayOfWeek === parseInt(state.weeklyCycle.endDay)) {
+                 weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold py-1.5 rounded transition-colors shadow-sm flex items-center justify-center gap-1"><i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reiniciar Semana</button>`;
+            }
+
             return `
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 flex-shrink-0">
@@ -881,6 +853,7 @@
                             <div class="flex justify-between text-gray-400"><span>USDT:</span><span class="text-gray-900">$${App.formatCurrency(wStats.desglose.usdt)}</span></div>
                             <div class="flex justify-between text-gray-400"><span>MXN:</span><span class="text-gray-900">$${App.formatCurrency(wStats.desglose.mxn)}</span></div>
                         </div>
+                        ${weekConfigBtnHtml}
                     </div>
                     <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
                         <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Todos los Clientes</span><i data-lucide="users" class="w-3 h-3 text-red-500"></i></div>
@@ -1552,6 +1525,37 @@
                     <p class="text-[10px] text-gray-500 mb-3">Esto borrará todos los datos almacenados en el navegador y reiniciará la base de datos.</p>
                     <button onclick="App.openResetModal()" class="w-full bg-red-50 text-red-600 font-bold py-3 sm:py-2.5 rounded-lg border border-red-100 hover:bg-red-600 hover:text-white transition-colors text-xs">Reiniciar LocalStorage</button>
                 </div>
+            </div>`;
+        }
+
+        function renderWeeklyConfigModal() {
+            const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            const sDay = state.weeklyCycle?.startDay || 1;
+            const eDay = state.weeklyCycle?.endDay !== null ? state.weeklyCycle?.endDay : 0;
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <form onsubmit="App.saveWeeklyConfig(event)" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                    <h3 class="text-sm font-black text-gray-900 mb-2 uppercase tracking-tight flex items-center gap-2"><i data-lucide="calendar" class="w-4 h-4 text-red-600"></i> Configurar Semana</h3>
+                    <p class="text-[10px] text-gray-500 mb-4 font-medium">Establece los días de inicio y fin. El monto se reiniciará para calcularse a partir del día activo actual <b>(${state.activeDate})</b>.</p>
+                    <div class="flex flex-col gap-3">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">Día de Inicio</label>
+                            <select name="startDay" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400 font-medium text-gray-700">
+                                ${days.map((d, i) => `<option value="${i}" ${sDay === i ? 'selected' : ''}>${d}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">Día de Fin (Reinicio)</label>
+                            <select name="endDay" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400 font-medium text-gray-700">
+                                ${days.map((d, i) => `<option value="${i}" ${eDay === i ? 'selected' : ''}>${d}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-6">
+                        <button type="button" onclick="App.closeWeeklyConfigModal()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors rounded-lg text-xs font-bold">Cancelar</button>
+                        <button type="submit" class="flex-[1.5] py-3 sm:py-2 bg-red-600 text-white hover:bg-red-700 transition-colors rounded-lg text-xs font-bold shadow-sm">Guardar y Reiniciar</button>
+                    </div>
+                </form>
             </div>`;
         }
 
