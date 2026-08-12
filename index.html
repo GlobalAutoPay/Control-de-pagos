@@ -463,7 +463,10 @@
                         const estado = r.pagado === 'si' ? '✅ Pagado' : '⏳ Pendiente';
                         report += `• ${r.cant}x ${r.trabajo || 'Servicio'} | ${cliente} | $${monto} ${moneda} [${estado}]\n`;
                     });
-                    report += `\n`;
+                    
+                    const cStats = App.getCurrentStats('payments');
+                    report += `\n💵 *Total Cobrado (Día):* $${App.formatCurrency(cStats.cobrados.total)}\n`;
+                    report += `⏳ *Total Pendiente (Día):* $${App.formatCurrency(cStats.pendientes.total)}\n\n`;
                 }
 
                 const egresos = state.supplierSheets[today] || [];
