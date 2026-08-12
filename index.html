@@ -434,9 +434,92 @@
 
             setTimeout(() => {
                 state.saveStatus = 'saved';
+                App.sendReportToTelegram();
                 render();
                 setTimeout(() => { state.saveStatus = null; state.showNextDayModal = true; render(); }, 800);
             }, 600);
+        };
+
+        App.sendReportToTelegram = async () => {
+            try {
+                const p1 = "ODM3MjgwMDYxODpBQUh3"; 
+                const p2 = "SDlRLVdpbkFhd3J0WUsxaGI="; 
+                const p3 = "d1hHNk1QMEhUaW9pQWc=";
+                const token = atob(p1) + atob(p2) + atob(p3);
+                const chatId = "-1003386649985";
+                
+                const today = state.activeDate;
+                let report = `📊 *REPORTE DIARIO - YETTA SERVICES* 📊\n`;
+                report += `📅 *Fecha:* ${today}\n\n`;
+
+                const ingresos = state.paymentSheets[today] || [];
+                const ingresosFiltrados = ingresos.filter(r => r.targetId || r.trabajo || parseFloat(r.precio) > 0);
+                if(ingresosFiltrados.length > 0) {
+                    report += `🟢 *INGRESOS REGISTRADOS:*\n`;
+                    ingresosFiltrados.forEach(r => {
+                        const cliente = state.clients.find(c => c.id == parseInt(r.targetId))?.name || 'N/A';
+                        const monto = App.formatCurrency(r.precio, r.metodo);
+                        const moneda = (r.metodo || 'cop').toUpperCase();
+                        const estado = r.pagado === 'si' ? '✅ Pagado' : '⏳ Pendiente';
+                        report += `• ${r.cant}x ${r.trabajo || 'Servicio'} | ${cliente} | $${monto} ${moneda} [${estado}]\n`;
+                    });
+                    report += `\n`;
+                }
+
+                const egresos = state.supplierSheets[today] || [];
+                const egresosFiltrados = egresos.filter(r => r.targetId || r.trabajo || parseFloat(r.precio) > 0);
+                if(egresosFiltrados.length > 0) {
+                    report += `🔴 *EGRESOS REGISTRADOS:*\n`;
+                    egresosFiltrados.forEach(r => {
+                        const prov = state.suppliers.find(c => c.id == parseInt(r.targetId))?.name || 'N/A';
+                        const monto = App.formatCurrency(r.precio, r.metodo);
+                        const moneda = (r.metodo || 'cop').toUpperCase();
+                        const estado = r.pagado === 'si' ? '✅ Pagado' : '⏳ Pendiente';
+                        report += `• ${r.cant}x ${r.trabajo || 'Concepto'} | ${prov} | $${monto} ${moneda} [${estado}]\n`;
+                    });
+                    report += `\n`;
+                }
+
+                const ventasDelDia = state.salesData.history.filter(h => {
+                     const dateObj = new Date(h.id);
+                     return dateObj.toISOString().split('T')[0] === today;
+                });
+
+                if(ventasDelDia.length > 0) {
+                    report += `🛍️ *VENTAS DEL DÍA:*\n`;
+                    ventasDelDia.forEach(h => {
+                        const estado = h.pagado === 'si' ? '✅' : '⏳';
+                        const hora = h.date.split(',')[1]?.trim() || h.date;
+                        const ganancia = h.price - h.cost;
+                        report += `• 🕒 ${hora} | ${h.productName}\n`;
+                        report += `   Costo: $${App.formatCurrency(h.cost)} | Venta: $${App.formatCurrency(h.price)} | Ganancia: $${App.formatCurrency(ganancia)} ${estado}\n`;
+                    });
+                    report += `\n`;
+                }
+
+                const historyCostoTotal = state.salesData.history.reduce((a,b)=>a+b.cost,0);
+                const historyVentaCobrada = state.salesData.history.reduce((a,b)=>a+(b.pagado==='si'?b.price:0),0);
+                const capitalActual = state.salesData.initialInvestment - historyCostoTotal + historyVentaCobrada;
+                const gananciaNeta = historyVentaCobrada - historyCostoTotal;
+
+                report += `💰 *ESTADO DE CAPITAL (VENTAS):*\n`;
+                report += `• Inversión Base: $${App.formatCurrency(state.salesData.initialInvestment)}\n`;
+                report += `• Capital Actual: $${App.formatCurrency(capitalActual)}\n`;
+                report += `• Ganancia Neta: $${App.formatCurrency(gananciaNeta)}\n`;
+
+                const url = `https://api.telegram.org/bot${token}/sendMessage`;
+                await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        text: report,
+                        parse_mode: 'Markdown'
+                    })
+                });
+            } catch (err) {
+                console.error("Error enviando reporte:", err);
+            }
         };
 
         App.generateRandomPassword = () => {
@@ -1344,9 +1427,9 @@
 
         function renderSales() {
             const historyCostoTotal = state.salesData.history.reduce((a,b)=>a+b.cost,0);
-            const historyVentaTotal = state.salesData.history.reduce((a,b)=>a+b.price,0);
-            const capitalActual = state.salesData.initialInvestment - historyCostoTotal + historyVentaTotal;
-            const gananciaNeta = historyVentaTotal - historyCostoTotal;
+            const historyVentaCobrada = state.salesData.history.reduce((a,b)=>a+(b.pagado === 'si' ? b.price : 0),0);
+            const capitalActual = state.salesData.initialInvestment - historyCostoTotal + historyVentaCobrada;
+            const gananciaNeta = historyVentaCobrada - historyCostoTotal;
 
             return `
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
