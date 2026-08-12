@@ -58,6 +58,7 @@
             showNextDayModal: false,
             showResetModal: false, 
             showWeeklyConfigModal: false, // Nuevo estado para modal de configuración semanal
+            showRechargeModal: false,
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
@@ -89,6 +90,7 @@
             salesSearchQuery: '',
             salesData: {
                 initialInvestment: 0,
+                profitReinvested: 0,
                 products: [],
                 history: []
             },
@@ -190,6 +192,7 @@
                     ${state.entityModal.show ? renderEntityModal() : ''}
                     ${state.showResetModal ? renderResetModal() : ''}
                     ${state.showWeeklyConfigModal ? renderWeeklyConfigModal() : ''}
+                    ${state.showRechargeModal ? renderRechargeModal() : ''}
                 `;
                 lucide.createIcons();
 
@@ -504,14 +507,16 @@
                 const historyVentaCobrada = state.salesData.history.reduce((a,b)=>a+(b.pagado==='si'?(parseFloat(b.price)||0):0),0);
                 const historyCostoCobrado = state.salesData.history.reduce((a,b)=>a+(b.pagado==='si'?(parseFloat(b.cost)||0):0),0);
                 
+                const reinvested = state.salesData.profitReinvested || 0;
+                
                 const capitalDisponible = parseFloat(state.salesData.initialInvestment) - historyCostoTotal;
-                const gananciaNeta = historyVentaCobrada - historyCostoCobrado;
-                const capitalTotal = capitalDisponible + historyVentaCobrada;
+                const gananciaNeta = historyVentaCobrada - historyCostoCobrado - reinvested;
+                const capitalTotalAcumulado = capitalDisponible + historyVentaCobrada - reinvested;
 
                 report += `💰 *ESTADO DE CAPITAL (VENTAS):*\n`;
                 report += `• Inversión Base: $${App.formatCurrency(state.salesData.initialInvestment)}\n`;
                 report += `• Capital Restante: $${App.formatCurrency(capitalDisponible)}\n`;
-                report += `• Capital + Ganancias: $${App.formatCurrency(capitalTotal)}\n`;
+                report += `• Capital + Ganancias: $${App.formatCurrency(capitalTotalAcumulado)}\n`;
                 report += `• Ganancia Neta: $${App.formatCurrency(gananciaNeta)}\n`;
 
                 const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -576,6 +581,24 @@
 
         App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); };
         App.setSalesSearchQuery = (val) => { state.salesSearchQuery = val; render(); };
+
+        App.openRechargeModal = () => { state.showRechargeModal = true; render(); };
+        App.closeRechargeModal = () => { state.showRechargeModal = false; render(); };
+        App.applyRecharge = (e) => {
+            e.preventDefault();
+            const amount = parseFloat(e.target.amount.value) || 0;
+            const source = e.target.source.value;
+
+            if (amount > 0) {
+                state.salesData.initialInvestment = (parseFloat(state.salesData.initialInvestment) || 0) + amount;
+                
+                if (source === 'accumulated') {
+                    state.salesData.profitReinvested = (state.salesData.profitReinvested || 0) + amount;
+                }
+                
+                App.closeRechargeModal();
+            }
+        };
 
         App.addSalesProduct = (e) => {
             e.preventDefault();
@@ -1428,9 +1451,11 @@
             const historyVentaCobrada = state.salesData.history.reduce((a,b)=>a+(b.pagado === 'si' ? (parseFloat(b.price)||0) : 0),0);
             const historyCostoCobrado = state.salesData.history.reduce((a,b)=>a+(b.pagado === 'si' ? (parseFloat(b.cost)||0) : 0),0);
             
+            const reinvested = state.salesData.profitReinvested || 0;
+            
             const capitalDisponible = parseFloat(state.salesData.initialInvestment) - historyCostoTotal;
-            const gananciaNeta = historyVentaCobrada - historyCostoCobrado;
-            const capitalTotalAcumulado = capitalDisponible + historyVentaCobrada;
+            const gananciaNeta = historyVentaCobrada - historyCostoCobrado - reinvested;
+            const capitalTotalAcumulado = capitalDisponible + historyVentaCobrada - reinvested;
 
             return `
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
@@ -1445,6 +1470,9 @@
                         <div class="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 focus-within:border-red-500 transition-colors w-full">
                             <span class="text-gray-500 font-bold text-lg">$</span>
                             <input id="sales-inv-input" type="number" value="${state.salesData.initialInvestment}" onchange="App.setSalesInvestment(this.value)" class="bg-transparent px-2 py-2 text-xl sm:text-2xl font-black text-gray-900 outline-none w-full" placeholder="0"/>
+                            <button onclick="App.openRechargeModal()" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 p-1.5 rounded-lg transition-colors flex-shrink-0" title="Añadir Recarga">
+                                <i data-lucide="plus" class="w-4 h-4"></i>
+                            </button>
                         </div>
                     </div>
                     
@@ -1701,6 +1729,32 @@
                         <button onclick="App.confirmReset()" class="flex-1 py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold">Sí, Reiniciar</button>
                     </div>
                 </div>
+            </div>`;
+        }
+
+        function renderRechargeModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <form onsubmit="App.applyRecharge(event)" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                    <h3 class="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight flex items-center gap-2"><i data-lucide="coins" class="w-4 h-4 text-red-600"></i> Aplicar Recarga</h3>
+                    <div class="flex flex-col gap-3">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Monto a Recargar</label>
+                            <input type="number" name="amount" required min="0.01" step="0.01" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400 font-bold text-gray-900" placeholder="0.00"/>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Origen de los fondos</label>
+                            <select name="source" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400 font-medium text-gray-700">
+                                <option value="external">Recarga Externa (Nuevo Dinero)</option>
+                                <option value="accumulated">Del Capital Acumulado (Reinversión)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-6">
+                        <button type="button" onclick="App.closeRechargeModal()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+                        <button type="submit" class="flex-[1.5] py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm">Aplicar Recarga</button>
+                    </div>
+                </form>
             </div>`;
         }
 
