@@ -313,6 +313,14 @@
             }
         };
 
+        App.deleteDay = (sheetType) => {
+            const targetSheet = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
+            if(targetSheet[state.activeDate]) {
+                targetSheet[state.activeDate] = [];
+                render();
+            }
+        };
+
         App.getGlobalDebt = (type = 'cliente') => {
             const totals = { cop: 0, usdt: 0, mxn: 0, totalConvertido: 0 };
             const sheets = type === 'cliente' ? state.paymentSheets : state.supplierSheets;
@@ -992,8 +1000,8 @@
             let weekConfigBtnHtml = '';
             if (!state.weeklyCycle?.isConfigured) {
                  weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 text-[9px] font-bold py-1.5 rounded transition-colors flex items-center justify-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> Configurar Semana</button>`;
-            } else if (currentDayOfWeek === parseInt(state.weeklyCycle.endDay)) {
-                 weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold py-1.5 rounded transition-colors shadow-sm flex items-center justify-center gap-1"><i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reiniciar Semana</button>`;
+            } else {
+                 weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-gray-50 hover:bg-gray-100 text-gray-500 text-[8px] font-bold py-1 rounded transition-colors flex items-center justify-center gap-1 border border-gray-200"><i data-lucide="settings-2" class="w-2.5 h-2.5"></i> Editar Config. Semanal</button>`;
             }
 
             return `
@@ -1149,8 +1157,11 @@
                             <button onclick="App.addRow('payments')" class="flex-1 sm:flex-none flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors justify-center">
                                 <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir Fila
                             </button>
-                            <button onclick="App.cleanEmptyRows('payments')" class="flex-1 sm:flex-none flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 border border-red-100 shadow-sm hover:bg-red-100 transition-colors justify-center" title="Eliminar días/líneas vacías">
-                                <i data-lucide="eraser" class="w-3.5 h-3.5"></i> Limpiar Vacías
+                            <button onclick="App.cleanEmptyRows('payments')" class="flex-1 sm:flex-none flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-gray-100 border border-gray-200 shadow-sm hover:bg-gray-200 transition-colors justify-center" title="Limpiar filas vacías">
+                                <i data-lucide="eraser" class="w-3.5 h-3.5"></i> Limpiar
+                            </button>
+                            <button onclick="App.deleteDay('payments')" class="flex-1 sm:flex-none flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 border border-red-100 shadow-sm hover:bg-red-100 transition-colors justify-center" title="Eliminar todo el día">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Borrar Día
                             </button>
                         </div>
                         <button onclick="App.handleSaveAndCalculate()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm w-full sm:w-auto justify-center ${state.saveStatus === 'saving' ? 'bg-gray-200 text-gray-500' : state.saveStatus === 'saved' ? 'bg-green-500 text-white' : 'bg-red-600 text-white hover:bg-red-700 hover:shadow-md'}">
