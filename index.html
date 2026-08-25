@@ -62,11 +62,11 @@
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
-            tabOrder: ['dashboard', 'suppliers', 'memberships', 'users', 'tools', 'calculator', 'sales', 'settings'],
+            tabOrder: ['dashboard', 'suppliers', 'memberships', 'users', 'tools', 'calculator', 'sales', 'telegram', 'settings'],
 
             weeklyCycle: {
                 isConfigured: false,
-                startDay: 1, // Lunes por defecto
+                startDay: 1, 
                 endDay: 0, 
                 currentStartDate: todayStr
             },
@@ -101,7 +101,15 @@
                 { id: 1, name: 'Hosting AWS', currency: 'usdt', debt: 0, type: 'proveedor' }
             ],
             memberships: [],
-            exchangeRates: { cop: 4000, mxn: 17, usdt: 1 },
+            
+            // Sistema de tasas (3 perfiles)
+            rateProfiles: {
+                1: { cop: 4000, mxn: 17 },
+                2: { cop: 4100, mxn: 18 },
+                3: { cop: 4200, mxn: 19 }
+            },
+            activeRateProfile: 1,
+
             paymentSheets: { [todayStr]: getEmptyRows() },
             supplierSheets: { [todayStr]: getEmptyRows() }
         };
@@ -116,11 +124,22 @@
                     const parsedData = JSON.parse(savedData);
                     state = { ...defaultState, ...parsedData };
                     
+                    // Migración para soportar los 3 perfiles de tasas si venía de versión anterior
+                    if (parsedData.exchangeRates && !parsedData.rateProfiles) {
+                        state.rateProfiles = {
+                            1: { cop: parsedData.exchangeRates.cop || 4000, mxn: parsedData.exchangeRates.mxn || 17 },
+                            2: { cop: parsedData.exchangeRates.cop || 4000, mxn: parsedData.exchangeRates.mxn || 17 },
+                            3: { cop: parsedData.exchangeRates.cop || 4000, mxn: parsedData.exchangeRates.mxn || 17 }
+                        };
+                        state.activeRateProfile = 1;
+                    }
+
                     if (!state.weeklyCycle) state.weeklyCycle = { isConfigured: false, startDay: 1, endDay: 0, currentStartDate: todayStr };
                     if (!state.paymentSheets[todayStr]) state.paymentSheets[todayStr] = getEmptyRows();
                     if (!state.supplierSheets[todayStr]) state.supplierSheets[todayStr] = getEmptyRows();
                     if (!state.selectedClients) state.selectedClients = []; 
                     if (!state.entityModal.editingId) state.entityModal.editingId = null;
+                    if (!state.tabOrder.includes('telegram')) state.tabOrder.push('telegram');
                     
                     state.activeTab = 'dashboard';
                     state.activeDate = todayStr;
@@ -145,6 +164,9 @@
         loadLocalDatabase();
 
         const App = {};
+
+        // Helper para obtener la tasa actual
+        App.getRates = () => state.rateProfiles[state.activeRateProfile] || state.rateProfiles[1];
 
         App.checkResponsive = () => {
             const isMobile = window.innerWidth < 1024;
@@ -229,6 +251,19 @@
             if(window.innerWidth >= 1024) render();
         };
 
+        App.setActiveRateProfile = (id) => {
+            state.activeRateProfile = id;
+            App.calculateDebts();
+            render();
+        };
+
+        App.updateRateProfile = (id, curr, val) => {
+            const num = parseFloat(val) || 0;
+            state.rateProfiles[id][curr] = num;
+            App.calculateDebts();
+            render();
+        };
+
         App.handleDragStart = (e, id) => { 
             e.dataTransfer.effectAllowed = "move";
             e.dataTransfer.setData('text/plain', id); 
@@ -278,7 +313,6 @@
             
             if (currentIndex !== -1) {
                 const nextIndex = currentIndex + days;
-                // Saltar a la siguiente fecha disponible, omitiendo días borrados
                 if (nextIndex >= 0 && nextIndex < allDates.length) {
                     state.activeDate = allDates[nextIndex];
                     if(!state.paymentSheets[state.activeDate]) state.paymentSheets[state.activeDate] = getEmptyRows();
@@ -288,7 +322,6 @@
                 }
             }
             
-            // Si llegamos a los extremos o creamos un día nuevo
             const current = new Date(state.activeDate + 'T00:00:00');
             current.setDate(current.getDate() + days);
             state.activeDate = current.toISOString().split('T')[0];
@@ -312,68 +345,55 @@
              }
         };
 
-        // NUEVO: Función para limpiar filas vacías en la hoja del día
         App.cleanEmptyRows = (sheetType) => {
             const targetSheet = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
             if(targetSheet[state.activeDate]) {
                 const cleanedRows = targetSheet[state.activeDate].filter(row => 
                     row.targetId || row.trabajo || (row.precio && row.precio !== '0')
                 );
-                
                 if (cleanedRows.length === 0) {
                     cleanedRows.push({ id: Date.now(), cant: 1, targetId: '', trabajo: '', precio: '', pagado: 'si', metodo: 'cop' });
                 }
-                
                 targetSheet[state.activeDate] = cleanedRows;
                 render();
             }
         };
 
         App.deleteDay = () => {
-            // Eliminar el día por completo de AMBAS hojas para que desaparezca totalmente
             delete state.paymentSheets[state.activeDate];
             delete state.supplierSheets[state.activeDate];
-            
             const allDates = [...new Set([...Object.keys(state.paymentSheets), ...Object.keys(state.supplierSheets)])].sort().reverse();
             const pastDates = allDates.filter(d => d < state.activeDate);
-            
-            if (pastDates.length > 0) {
-                state.activeDate = pastDates[0]; // Va al registro anterior
-            } else if (allDates.length > 0) {
-                state.activeDate = allDates[0]; // Va al único día restante
-            } else {
-                state.activeDate = new Date().toISOString().split('T')[0]; // Regresa a hoy
-            }
-            
+            if (pastDates.length > 0) state.activeDate = pastDates[0];
+            else if (allDates.length > 0) state.activeDate = allDates[0];
+            else state.activeDate = new Date().toISOString().split('T')[0];
             if(!state.paymentSheets[state.activeDate]) state.paymentSheets[state.activeDate] = getEmptyRows();
             if(!state.supplierSheets[state.activeDate]) state.supplierSheets[state.activeDate] = getEmptyRows();
-            
             render();
         };
 
         App.getGlobalDebt = (type = 'cliente') => {
             const totals = { cop: 0, usdt: 0, mxn: 0, totalConvertido: 0 };
             const sheets = type === 'cliente' ? state.paymentSheets : state.supplierSheets;
+            const rates = App.getRates();
             
             Object.values(sheets).forEach(rows => {
                 rows.forEach(row => {
                     const p = parseFloat(row.precio) || 0;
                     if(p > 0 && row.pagado === 'no' && row.targetId) {
                         const curr = row.metodo || 'cop';
-                        if (totals[curr] !== undefined) {
-                            totals[curr] += p;
-                        }
+                        if (totals[curr] !== undefined) totals[curr] += p;
                     }
                 });
             });
-            
-            totals.totalConvertido = totals.usdt + (totals.cop / state.exchangeRates.cop) + (totals.mxn / state.exchangeRates.mxn);
+            totals.totalConvertido = totals.usdt + (totals.cop / rates.cop) + (totals.mxn / rates.mxn);
             return totals;
         };
 
         App.getWeeklyStats = (sheetType = 'payments') => {
             const totals = { cop: 0, usdt: 0, mxn: 0 };
             const sheets = sheetType === 'payments' ? state.paymentSheets : state.supplierSheets;
+            const rates = App.getRates();
             
             let startDate;
             if (state.weeklyCycle && state.weeklyCycle.isConfigured) {
@@ -389,7 +409,6 @@
 
             Object.keys(sheets).forEach(dateStr => {
                 const sheetDate = new Date(dateStr + 'T00:00:00');
-                
                 let isValidDate = false;
                 if (state.weeklyCycle && state.weeklyCycle.isConfigured) {
                     isValidDate = sheetDate >= startDate; 
@@ -408,13 +427,14 @@
                 }
             });
 
-            const totalUsdt = totals.usdt + (totals.cop / state.exchangeRates.cop) + (totals.mxn / state.exchangeRates.mxn);
+            const totalUsdt = totals.usdt + (totals.cop / rates.cop) + (totals.mxn / rates.mxn);
             return { desglose: totals, totalConvertido: totalUsdt };
         };
 
         App.getCurrentStats = (sheetType = 'payments') => {
             const rows = (sheetType === 'payments' ? state.paymentSheets : state.supplierSheets)[state.activeDate] || [];
             const stats = { cobrados: { count: 0, cop: 0, usdt: 0, mxn: 0, total: 0 }, pendientes: { count: 0, cop: 0, usdt: 0, mxn: 0, total: 0 } };
+            const rates = App.getRates();
             
             rows.forEach(row => {
                 const precio = parseFloat(row.precio) || 0;
@@ -426,8 +446,8 @@
                 }
             });
 
-            stats.cobrados.total = stats.cobrados.usdt + (stats.cobrados.cop / state.exchangeRates.cop) + (stats.cobrados.mxn / state.exchangeRates.mxn);
-            stats.pendientes.total = stats.pendientes.usdt + (stats.pendientes.cop / state.exchangeRates.cop) + (stats.pendientes.mxn / state.exchangeRates.mxn);
+            stats.cobrados.total = stats.cobrados.usdt + (stats.cobrados.cop / rates.cop) + (stats.cobrados.mxn / rates.mxn);
+            stats.pendientes.total = stats.pendientes.usdt + (stats.pendientes.cop / rates.cop) + (stats.pendientes.mxn / rates.mxn);
             return stats;
         };
 
@@ -460,9 +480,8 @@
             render();
         };
 
-        App.handleSaveAndCalculate = () => {
-            state.saveStatus = 'saving';
-            render();
+        App.calculateDebts = () => {
+            const rates = App.getRates();
             
             const newClientDebts = {};
             state.clients.forEach(c => newClientDebts[c.id] = 0);
@@ -473,8 +492,8 @@
                         const client = state.clients.find(c => c.id === parseInt(row.targetId));
                         if(client) {
                             const rowCurr = row.metodo || 'cop';
-                            const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
-                            const pClientCurr = client.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[client.currency] || 1);
+                            const pUsdt = rowCurr === 'usdt' ? p : p / (rates[rowCurr] || 1);
+                            const pClientCurr = client.currency === 'usdt' ? pUsdt : pUsdt * (rates[client.currency] || 1);
                             if (newClientDebts[row.targetId] !== undefined) newClientDebts[row.targetId] += pClientCurr;
                         }
                     }
@@ -491,21 +510,49 @@
                         const supplier = state.suppliers.find(c => c.id === parseInt(row.targetId));
                         if(supplier) {
                             const rowCurr = row.metodo || 'cop';
-                            const pUsdt = rowCurr === 'usdt' ? p : p / (state.exchangeRates[rowCurr] || 1);
-                            const pSupCurr = supplier.currency === 'usdt' ? pUsdt : pUsdt * (state.exchangeRates[supplier.currency] || 1);
+                            const pUsdt = rowCurr === 'usdt' ? p : p / (rates[rowCurr] || 1);
+                            const pSupCurr = supplier.currency === 'usdt' ? pUsdt : pUsdt * (rates[supplier.currency] || 1);
                             if (newSupDebts[row.targetId] !== undefined) newSupDebts[row.targetId] += pSupCurr;
                         }
                     }
                 });
             });
             state.suppliers = state.suppliers.map(s => ({ ...s, debt: newSupDebts[s.id] || 0 }));
+        };
 
+        App.handleSaveAndCalculate = (silent = false) => {
+            App.calculateDebts();
+            
+            if (silent === true) {
+                render(); 
+                return;
+            }
+
+            state.saveStatus = 'saving';
+            render();
+            
             setTimeout(() => {
                 state.saveStatus = 'saved';
                 App.sendReportToTelegram();
                 render();
                 setTimeout(() => { state.saveStatus = null; state.showNextDayModal = true; render(); }, 800);
             }, 600);
+        };
+
+        App.markEntityAsPaid = (id, type) => {
+            let changed = false;
+            const sheets = type === 'cliente' ? state.paymentSheets : state.supplierSheets;
+            Object.keys(sheets).forEach(date => {
+                sheets[date].forEach(row => {
+                    if (parseInt(row.targetId) === id && row.pagado === 'no') {
+                        row.pagado = 'si';
+                        changed = true;
+                    }
+                });
+            });
+            if (changed) {
+                App.handleSaveAndCalculate(true);
+            }
         };
 
         App.sendReportToTelegram = async () => {
@@ -541,14 +588,60 @@
                 await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: chatId,
-                        text: report,
-                        parse_mode: 'Markdown'
-                    })
+                    body: JSON.stringify({ chat_id: chatId, text: report, parse_mode: 'Markdown' })
                 });
+            } catch (err) { console.error("Error enviando reporte:", err); }
+        };
+
+        App.sendCustomTelegram = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const btn = document.getElementById('btn-send-tg');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Enviando...';
+            btn.disabled = true;
+
+            try {
+                const message = form.message.value;
+                const photoInput = form.photo;
+                
+                const p1 = "ODM3MjgwMDYxODpBQUh3"; 
+                const p2 = "SDlRLVdpbkFhd3J0WUsxaGI="; 
+                const p3 = "d1hHNk1QMEhUaW9pQWc=";
+                const token = atob(p1) + atob(p2) + atob(p3);
+                const chatId = "-1003386649985";
+
+                if (photoInput.files && photoInput.files.length > 0) {
+                    const formData = new FormData();
+                    formData.append('chat_id', chatId);
+                    formData.append('photo', photoInput.files[0]);
+                    formData.append('caption', message);
+                    formData.append('parse_mode', 'Markdown');
+                    
+                    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: formData });
+                } else {
+                    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
+                    });
+                }
+                
+                form.reset();
+                btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> ¡Enviado exitosamente!';
+                btn.classList.replace('bg-blue-600', 'bg-green-500');
+                btn.classList.replace('hover:bg-blue-700', 'hover:bg-green-600');
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.replace('bg-green-500', 'bg-blue-600');
+                    btn.classList.replace('hover:bg-green-600', 'hover:bg-blue-700');
+                    btn.disabled = false;
+                    lucide.createIcons();
+                }, 3000);
             } catch (err) {
-                console.error("Error enviando reporte:", err);
+                console.error(err);
+                btn.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i> Error al enviar';
+                btn.disabled = false;
             }
         };
 
@@ -597,7 +690,6 @@
             }
         };
 
-        // NUEVO: Función para reiniciar datos de ventas
         App.resetSalesData = () => {
             state.salesData.initialInvestment = 0;
             state.salesData.profitReinvested = 0;
@@ -614,14 +706,11 @@
             e.preventDefault();
             const amount = parseFloat(e.target.amount.value) || 0;
             const source = e.target.source.value;
-
             if (amount > 0) {
                 state.salesData.initialInvestment = (parseFloat(state.salesData.initialInvestment) || 0) + amount;
-                
                 if (source === 'accumulated') {
                     state.salesData.profitReinvested = (state.salesData.profitReinvested || 0) + amount;
                 }
-                
                 App.closeRechargeModal();
             }
         };
@@ -746,7 +835,6 @@
             render();
         };
 
-        // NUEVO: Funciones para configurar ciclo semanal y forzar lunes
         App.openWeeklyConfigModal = () => { state.showWeeklyConfigModal = true; render(); };
         App.closeWeeklyConfigModal = () => { state.showWeeklyConfigModal = false; render(); };
         App.saveWeeklyConfig = (e) => {
@@ -754,11 +842,10 @@
             const startDay = parseInt(e.target.startDay.value);
             const endDay = parseInt(e.target.endDay.value);
 
-            // Calcular la fecha del último día seleccionado (Lunes)
             const today = new Date(state.activeDate + 'T00:00:00');
             const currentDay = today.getDay();
             let distance = currentDay - startDay;
-            if (distance < 0) distance += 7; // Si el día de inicio ya pasó esta semana
+            if (distance < 0) distance += 7; 
 
             const startDate = new Date(today);
             startDate.setDate(today.getDate() - distance);
@@ -769,7 +856,6 @@
                 endDay: endDay,
                 currentStartDate: startDate.toISOString().split('T')[0]
             };
-
             App.closeWeeklyConfigModal();
         };
 
@@ -815,10 +901,8 @@
                         const restored = JSON.parse(event.target.result);
                         state = { ...state, ...restored, activeTab: 'dashboard' };
                         saveLocalDatabase();
-                        render();
-                    } catch (err) {
-                        console.error(err);
-                    }
+                        location.reload(); // Recargar para aplicar migraciones
+                    } catch (err) { console.error(err); }
                 };
                 reader.readAsText(file);
             }
@@ -886,10 +970,7 @@
                 });
             });
 
-            if (!hasPending) {
-                invoiceText += `_No hay ${isClient ? 'servicios' : 'conceptos'} pendientes registrados._\n`;
-            }
-
+            if (!hasPending) invoiceText += `_No hay ${isClient ? 'servicios' : 'conceptos'} pendientes registrados._\n`;
             invoiceText += `\n💵 *Deuda Total:* $${App.formatCurrency(entity.debt, entity.currency)} ${entity.currency.toUpperCase()}`;
 
             try {
@@ -903,11 +984,7 @@
                 await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: chatId,
-                        text: invoiceText,
-                        parse_mode: 'Markdown'
-                    })
+                    body: JSON.stringify({ chat_id: chatId, text: invoiceText, parse_mode: 'Markdown' })
                 });
                 
                 const btnId = isClient ? `invoice-btn-${id}` : `invoice-btn-sup-${id}`;
@@ -923,9 +1000,7 @@
                         lucide.createIcons();
                     }, 2000);
                 }
-            } catch(e) {
-                console.error("Error al enviar factura: ", e);
-            }
+            } catch(e) { console.error("Error al enviar factura: ", e); }
         };
 
         App.openResetModal = () => { state.showResetModal = true; render(); };
@@ -944,6 +1019,7 @@
                 { id: 'tools', icon: 'key', tooltip: 'Herramientas & Keys' },
                 { id: 'calculator', icon: 'calculator', tooltip: 'Calculadora' },
                 { id: 'sales', icon: 'shopping-bag', tooltip: 'Ventas e Inversiones' },
+                { id: 'telegram', icon: 'send', tooltip: 'Mensajes de Telegram' },
                 { id: 'settings', icon: 'settings', tooltip: 'Ajustes' }
             ];
             const sortedItems = state.tabOrder.map(id => navItems.find(item => item && item.id === id)).filter(Boolean);
@@ -954,9 +1030,9 @@
                     <div class="w-10 h-10 rounded-full border-4 border-red-600 border-t-transparent flex items-center justify-center rotate-45 mb-2">
                         <div class="w-3 h-3 bg-red-600 rounded-full"></div>
                     </div>
-                    <nav class="flex flex-col gap-3 w-full px-3">
+                    <nav class="flex flex-col gap-3 w-full px-3 custom-scrollbar overflow-y-auto max-h-[70vh]">
                         ${sortedItems.map(item => `
-                        <button draggable="true" ondragstart="App.handleDragStart(event, '${item.id}')" ondragover="App.handleDragOver(event)" ondrop="App.handleDrop(event, '${item.id}')" onclick="App.setActiveTab('${item.id}')" class="w-full aspect-square rounded-xl flex items-center justify-center transition-all relative group ${state.activeTab === item.id ? 'bg-gray-900 text-white shadow-md' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}" title="${item.tooltip}">
+                        <button draggable="true" ondragstart="App.handleDragStart(event, '${item.id}')" ondragover="App.handleDragOver(event)" ondrop="App.handleDrop(event, '${item.id}')" onclick="App.setActiveTab('${item.id}')" class="w-full aspect-square rounded-xl flex flex-shrink-0 items-center justify-center transition-all relative group ${state.activeTab === item.id ? 'bg-gray-900 text-white shadow-md' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}" title="${item.tooltip}">
                             <i data-lucide="${item.icon}" class="w-5 h-5"></i>
                         </button>
                         `).join('')}
@@ -986,10 +1062,10 @@
         }
 
         function renderMobileNav() {
-            return `<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around p-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)]">
-                ${state.tabOrder.slice(0, 5).map(id => {
-                    const icons = { dashboard:'layout-grid', suppliers:'building-2', memberships:'credit-card', users:'users', tools:'key', calculator:'calculator', sales:'shopping-bag', settings:'settings' };
-                    return `<button onclick="App.setActiveTab('${id}')" class="p-2 rounded-xl flex items-center justify-center ${state.activeTab === id ? 'text-red-600 bg-red-50' : 'text-gray-400'}"><i data-lucide="${icons[id]}" class="w-5 h-5"></i></button>`;
+            return `<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around p-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)] overflow-x-auto">
+                ${state.tabOrder.slice(0, 6).map(id => {
+                    const icons = { dashboard:'layout-grid', suppliers:'building-2', memberships:'credit-card', users:'users', tools:'key', calculator:'calculator', sales:'shopping-bag', telegram:'send', settings:'settings' };
+                    return `<button onclick="App.setActiveTab('${id}')" class="p-2 mx-1 rounded-xl flex items-center justify-center flex-shrink-0 ${state.activeTab === id ? 'text-red-600 bg-red-50' : 'text-gray-400'}"><i data-lucide="${icons[id]}" class="w-5 h-5"></i></button>`;
                 }).join('')}
             </nav>`;
         }
@@ -1002,6 +1078,7 @@
              if(state.activeTab === 'tools') return renderTools();
              if(state.activeTab === 'calculator') return renderCalculator();
              if(state.activeTab === 'sales') return renderSales();
+             if(state.activeTab === 'telegram') return renderTelegram();
              if(state.activeTab === 'settings') return renderSettings();
              return '';
         }
@@ -1010,6 +1087,7 @@
             const wStats = App.getWeeklyStats('payments');
             const cStats = App.getCurrentStats('payments');
             const gDebt = App.getGlobalDebt('cliente');
+            const rates = App.getRates();
             
             const today = new Date(state.activeDate + 'T00:00:00');
             let daysElapsed = today.getDay(); 
@@ -1024,15 +1102,16 @@
                 usdt: (wStats.desglose.usdt / daysElapsed) * multiplier,
                 mxn: (wStats.desglose.mxn / daysElapsed) * multiplier,
             };
-            const estTotal = est.usdt + (est.cop / state.exchangeRates.cop) + (est.mxn / state.exchangeRates.mxn);
+            const estTotal = est.usdt + (est.cop / rates.cop) + (est.mxn / rates.mxn);
 
-            const currentDayOfWeek = today.getDay();
             let weekConfigBtnHtml = '';
             if (!state.weeklyCycle?.isConfigured) {
                  weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 text-[9px] font-bold py-1.5 rounded transition-colors flex items-center justify-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> Configurar Semana</button>`;
             } else {
                  weekConfigBtnHtml = `<button onclick="App.openWeeklyConfigModal()" class="w-full mt-2 bg-gray-50 hover:bg-gray-100 text-gray-500 text-[8px] font-bold py-1 rounded transition-colors flex items-center justify-center gap-1 border border-gray-200"><i data-lucide="settings-2" class="w-2.5 h-2.5"></i> Editar Config. Semanal</button>`;
             }
+
+            const sortedProducts = [...state.salesData.products].sort((a,b) => a.name.localeCompare(b.name));
 
             return `
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
@@ -1048,7 +1127,6 @@
                         ${weekConfigBtnHtml}
                     </div>
                     
-                    <!-- MODIFICADO: Top 5 Clientes con Deuda -->
                     <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between overflow-hidden">
                         <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Todos los Clientes</span><i data-lucide="users" class="w-3 h-3 text-red-500"></i></div>
                         <div class="flex items-end justify-between border-b border-gray-50 pb-1 mb-1">
@@ -1149,7 +1227,7 @@
                                         <td class="p-2">
                                             <select id="trabajo-${index}" onchange="App.updateRow('payments', ${index}, 'trabajo', this.value)" class="w-full bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-1 focus:ring-red-400 p-1.5 outline-none font-medium">
                                                 <option value="">Seleccionar Trabajo...</option>
-                                                ${state.salesData.products.map(p => `<option value="${p.name}" ${row.trabajo === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
+                                                ${sortedProducts.map(p => `<option value="${p.name}" ${row.trabajo === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
                                             </select>
                                         </td>
                                         <td class="p-2">
@@ -1181,7 +1259,6 @@
                         </table>
                     </div>
                     
-                    <!-- MODIFICADO: Añadido botón de limpiar filas vacías -->
                     <div class="bg-gray-50 border-t border-gray-100 p-3 px-4 flex justify-between items-center flex-wrap gap-2">
                         <div class="flex gap-2 w-full sm:w-auto">
                             <button onclick="App.addRow('payments')" class="flex-1 sm:flex-none flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors justify-center">
@@ -1211,6 +1288,8 @@
                 const opts = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
                 return new Intl.DateTimeFormat('es-ES', opts).format(new Date(dateStr + 'T00:00:00'));
             };
+
+            const sortedProducts = [...state.salesData.products].sort((a,b) => a.name.localeCompare(b.name));
 
             return `
             <div class="flex flex-col gap-4 px-2 sm:px-0">
@@ -1273,7 +1352,7 @@
                                     <td class="p-2">
                                         <select id="sup-trabajo-${index}" onchange="App.updateRow('suppliers', ${index}, 'trabajo', this.value)" class="w-full bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-1 focus:ring-red-400 block p-1.5 outline-none font-medium">
                                             <option value="">Seleccionar Concepto...</option>
-                                            ${state.salesData.products.map(p => `<option value="${p.name}" ${row.trabajo === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
+                                            ${sortedProducts.map(p => `<option value="${p.name}" ${row.trabajo === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
                                         </select>
                                     </td>
                                     <td class="p-2">
@@ -1443,7 +1522,10 @@
                                     </div>
                                     <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                                         <span class="text-[10px] font-bold ${c.debt>0?'text-red-500':'text-green-500'}">${c.debt>0?`Deuda: $${App.formatCurrency(c.debt, c.currency)}`:'Al día'}</span>
-                                        ${c.debt > 0 ? `<button id="invoice-btn-${c.id}" onclick="App.generateInvoiceAndSend(${c.id})" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>` : ''}
+                                        ${c.debt > 0 ? `
+                                            <button onclick="App.markEntityAsPaid(${c.id}, 'cliente')" class="text-[10px] font-bold text-green-600 bg-green-50 hover:bg-green-100 px-2 py-1 rounded transition-colors shadow-sm whitespace-nowrap hidden sm:inline-flex items-center gap-1"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Pagar</button>
+                                            <button id="invoice-btn-${c.id}" onclick="App.generateInvoiceAndSend(${c.id})" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>
+                                        ` : ''}
                                         <button onclick="App.openEntityModal('cliente', ${c.id})" class="text-gray-300 hover:text-blue-500 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="edit-2" class="w-3.5 h-3.5"></i></button>
                                         <button onclick="App.deleteEntity('cliente', ${c.id})" class="text-gray-300 hover:text-red-500 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                     </div>
@@ -1462,7 +1544,10 @@
                                     <div class="truncate pr-2"><p class="text-xs font-bold text-gray-900 truncate">${s.name}</p><p class="text-[9px] text-gray-400 uppercase">${s.currency}</p></div>
                                     <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                                         <span class="text-[10px] font-bold ${s.debt>0?'text-red-500':'text-green-500'}">${s.debt>0?`Por pagar: $${App.formatCurrency(s.debt, s.currency)}`:'Al día'}</span>
-                                        ${s.debt > 0 ? `<button id="invoice-btn-sup-${s.id}" onclick="App.generateInvoiceAndSend(${s.id}, 'proveedor')" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>` : ''}
+                                        ${s.debt > 0 ? `
+                                            <button onclick="App.markEntityAsPaid(${s.id}, 'proveedor')" class="text-[10px] font-bold text-green-600 bg-green-50 hover:bg-green-100 px-2 py-1 rounded transition-colors shadow-sm whitespace-nowrap hidden sm:inline-flex items-center gap-1"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Pagar</button>
+                                            <button id="invoice-btn-sup-${s.id}" onclick="App.generateInvoiceAndSend(${s.id}, 'proveedor')" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>
+                                        ` : ''}
                                         <button onclick="App.openEntityModal('proveedor', ${s.id})" class="text-gray-300 hover:text-blue-500 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="edit-2" class="w-3.5 h-3.5"></i></button>
                                         <button onclick="App.deleteEntity('proveedor', ${s.id})" class="text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                     </div>
@@ -1523,7 +1608,7 @@
         function renderCalculator() {
             const vBase = state.calcState.displayBase;
             const bVal = parseFloat(state.calcState.baseValue) || 0;
-            const rates = state.exchangeRates;
+            const rates = App.getRates();
             
             let valUSDT=0, valCOP=0, valMXN=0;
             if(vBase === 'USDT') { valUSDT=bVal; valCOP=bVal*rates.cop; valMXN=bVal*rates.mxn; }
@@ -1541,6 +1626,13 @@
                         <div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="calculator" class="w-5 h-5"></i></div>
                         <div><h2 class="text-xl font-bold text-gray-900 leading-tight">Calculadora de Tasas</h2><p class="text-[10px] text-gray-500 font-medium">Conversión en tiempo real</p></div>
                     </div>
+                    
+                    <div class="flex items-center gap-2 bg-gray-100 p-1.5 rounded-xl border border-gray-200 w-full sm:w-auto justify-center">
+                        ${[1,2,3].map(id => `
+                            <button onclick="App.setActiveRateProfile(${id})" class="px-4 py-1.5 text-[10px] font-bold rounded-lg transition-all ${state.activeRateProfile === id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'} flex-1 sm:flex-none">Tasa ${id}</button>
+                        `).join('')}
+                    </div>
+
                     <div class="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 w-full sm:w-auto justify-center">
                         <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tasa COP: <span class="text-gray-900">$${rates.cop}</span></span>
                         <div class="w-px h-4 bg-gray-300"></div>
@@ -1589,14 +1681,14 @@
             const historyCostoCobrado = state.salesData.history.reduce((a,b)=>a+(b.pagado === 'si' ? (parseFloat(b.cost)||0) : 0),0);
             
             const reinvested = state.salesData.profitReinvested || 0;
-            
             const capitalDisponible = parseFloat(state.salesData.initialInvestment) - historyCostoTotal;
             const gananciaNeta = historyVentaCobrada - historyCostoCobrado - reinvested;
             const capitalTotalAcumulado = capitalDisponible + historyVentaCobrada - reinvested;
 
+            const sortedProducts = [...state.salesData.products].sort((a,b) => a.name.localeCompare(b.name));
+
             return `
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
-                <!-- MODIFICADO: Añadido botón de Reiniciar Datos -->
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-sm flex-shrink-0"><i data-lucide="shopping-bag" class="w-5 h-5"></i></div>
                     <div class="flex-1"><h2 class="text-xl font-bold text-gray-900 truncate">Gestión de Ventas</h2><p class="text-xs text-gray-500 font-medium truncate">Control de capital e inventario</p></div>
@@ -1609,9 +1701,7 @@
                         <div class="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 focus-within:border-red-500 transition-colors w-full">
                             <span class="text-gray-500 font-bold text-lg">$</span>
                             <input id="sales-inv-input" type="number" value="${state.salesData.initialInvestment}" onchange="App.setSalesInvestment(this.value)" class="bg-transparent px-2 py-2 text-xl sm:text-2xl font-black text-gray-900 outline-none w-full" placeholder="0"/>
-                            <button onclick="App.openRechargeModal()" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 p-1.5 rounded-lg transition-colors flex-shrink-0" title="Añadir Recarga">
-                                <i data-lucide="plus" class="w-4 h-4"></i>
-                            </button>
+                            <button onclick="App.openRechargeModal()" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 p-1.5 rounded-lg transition-colors flex-shrink-0" title="Añadir Recarga"><i data-lucide="plus" class="w-4 h-4"></i></button>
                         </div>
                     </div>
                     
@@ -1654,7 +1744,7 @@
                         </div>
                         <div class="flex-1 overflow-auto p-4 flex flex-col gap-3 custom-scrollbar">
                             ${(() => {
-                                const filteredProducts = state.salesData.products.filter(p => p.name.toLowerCase().includes(state.salesSearchQuery.toLowerCase()));
+                                const filteredProducts = sortedProducts.filter(p => p.name.toLowerCase().includes(state.salesSearchQuery.toLowerCase()));
                                 if(filteredProducts.length === 0) return '<div class="text-center text-xs font-medium text-gray-400 py-10">Sin resultados</div>';
                                 return filteredProducts.map(p => `
                                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white border border-gray-100 rounded-xl gap-3 hover:border-gray-200 transition-all shadow-sm group">
@@ -1742,9 +1832,36 @@
             </div>`;
         }
 
+        function renderTelegram() {
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center shadow-sm"><i data-lucide="send" class="w-5 h-5"></i></div>
+                    <div><h2 class="text-xl font-bold text-gray-900">Mensajes de Telegram</h2><p class="text-xs text-gray-500 font-medium">Envía texto e imágenes al canal</p></div>
+                </div>
+                
+                <div class="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 max-w-3xl flex-1 flex flex-col h-full">
+                    <h3 class="font-black text-gray-800 text-xs mb-4 uppercase tracking-wide border-b border-gray-100 pb-2"><i data-lucide="message-circle" class="w-3.5 h-3.5 inline mr-1 text-blue-500"></i> Redactar Mensaje</h3>
+                    <form onsubmit="App.sendCustomTelegram(event)" class="flex flex-col gap-5 flex-1">
+                        <div class="flex-1 flex flex-col">
+                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Cuerpo del Mensaje (Soporta Markdown)</label>
+                            <textarea name="message" required class="w-full flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-400 resize-none font-medium text-gray-700 custom-scrollbar min-h-[150px]" placeholder="Escribe aquí tu mensaje bien organizado..."></textarea>
+                        </div>
+                        <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                            <label class="text-[10px] font-bold text-blue-500 uppercase mb-2 block flex items-center gap-1"><i data-lucide="image" class="w-3 h-3"></i> Adjuntar Foto (Opcional)</label>
+                            <input type="file" name="photo" accept="image/*" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer"/>
+                        </div>
+                        <button type="submit" id="btn-send-tg" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm text-xs flex items-center justify-center gap-2 mt-auto">
+                            <i data-lucide="send" class="w-4 h-4"></i> Enviar a Telegram
+                        </button>
+                    </form>
+                </div>
+            </div>`;
+        }
+
         function renderSettings() {
             return `
-            <div class="flex flex-col gap-4 h-full max-w-2xl mx-auto w-full px-2 sm:px-0">
+            <div class="flex flex-col gap-4 h-full max-w-3xl mx-auto w-full px-2 sm:px-0">
                 <div class="flex items-center gap-3 mb-2"><div class="w-10 h-10 rounded-xl bg-gray-200 text-gray-700 flex items-center justify-center"><i data-lucide="settings" class="w-5 h-5"></i></div>
                 <div><h2 class="text-xl font-bold text-gray-900">Ajustes & Backups</h2></div></div>
                 
@@ -1763,11 +1880,22 @@
                 </div>
 
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <h3 class="font-bold text-sm mb-4">Tasas de Cambio (1 USDT)</h3>
-                    <div class="flex flex-col sm:flex-row gap-4">
-                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">COP</label><input id="rate-cop" type="number" value="${state.exchangeRates.cop}" oninput="state.exchangeRates.cop=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
-                        <div class="flex-1"><label class="text-[10px] font-bold text-gray-400 uppercase">MXN</label><input id="rate-mxn" type="number" value="${state.exchangeRates.mxn}" oninput="state.exchangeRates.mxn=parseFloat(this.value)||0; render()" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm outline-none focus:border-gray-400"/></div>
+                    <h3 class="font-bold text-sm mb-4">Configuración de Tasas de Cambio (3 Perfiles)</h3>
+                    <div class="flex flex-col gap-3">
+                        ${[1, 2, 3].map(id => `
+                        <div class="flex flex-col sm:flex-row gap-3 items-center border border-gray-100 p-3 rounded-xl ${state.activeRateProfile === id ? 'bg-red-50 border-red-100' : 'bg-gray-50'}">
+                            <div class="flex flex-col items-center justify-center w-full sm:w-20">
+                                <span class="font-black text-xs ${state.activeRateProfile === id ? 'text-red-600' : 'text-gray-500'}">TASA ${id}</span>
+                                ${state.activeRateProfile === id ? '<span class="text-[8px] bg-red-600 text-white px-1.5 py-0.5 rounded uppercase font-bold mt-1">Activa</span>' : ''}
+                            </div>
+                            <div class="flex-1 flex gap-3 w-full">
+                                <div class="flex-1"><label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Valor COP</label><input type="number" value="${state.rateProfiles[id].cop}" oninput="App.updateRateProfile(${id}, 'cop', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-700 outline-none focus:border-red-400"/></div>
+                                <div class="flex-1"><label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Valor MXN</label><input type="number" value="${state.rateProfiles[id].mxn}" oninput="App.updateRateProfile(${id}, 'mxn', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-700 outline-none focus:border-red-400"/></div>
+                            </div>
+                        </div>
+                        `).join('')}
                     </div>
+                    <p class="text-[10px] text-gray-400 mt-3 text-center">Puedes cambiar entre estas tasas en la pestaña de <b>Calculadora</b>.</p>
                 </div>
 
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
@@ -1793,7 +1921,6 @@
             </div>`;
         }
 
-        // MODIFICADO: Modal de Configuración Semanal (Fijo a Lunes)
         function renderWeeklyConfigModal() {
             const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
             const eDay = state.weeklyCycle?.endDay !== null ? state.weeklyCycle?.endDay : 0;
