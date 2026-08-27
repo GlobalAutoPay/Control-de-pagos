@@ -102,7 +102,6 @@
             ],
             memberships: [],
             
-            // Sistema de tasas (3 perfiles)
             rateProfiles: {
                 1: { cop: 4000, mxn: 17 },
                 2: { cop: 4100, mxn: 18 },
@@ -124,7 +123,6 @@
                     const parsedData = JSON.parse(savedData);
                     state = { ...defaultState, ...parsedData };
                     
-                    // Migración para soportar los 3 perfiles de tasas si venía de versión anterior
                     if (parsedData.exchangeRates && !parsedData.rateProfiles) {
                         state.rateProfiles = {
                             1: { cop: parsedData.exchangeRates.cop || 4000, mxn: parsedData.exchangeRates.mxn || 17 },
@@ -165,7 +163,6 @@
 
         const App = {};
 
-        // Helper para obtener la tasa actual
         App.getRates = () => state.rateProfiles[state.activeRateProfile] || state.rateProfiles[1];
 
         App.checkResponsive = () => {
@@ -593,6 +590,35 @@
             } catch (err) { console.error("Error enviando reporte:", err); }
         };
 
+        App.handleTelegramPaste = (e) => {
+            if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+                const fileInput = document.getElementById('telegram-file-input');
+                if (fileInput) {
+                    fileInput.files = e.clipboardData.files;
+                    const label = document.getElementById('telegram-file-label');
+                    if(label) {
+                        label.innerHTML = `<i data-lucide="check" class="w-3 h-3 text-green-500"></i> Archivo listo: ${e.clipboardData.files[0].name}`;
+                        lucide.createIcons();
+                    }
+                }
+            }
+        };
+
+        App.handleTelegramKeyDown = (e) => {
+            if (e.ctrlKey && e.key.toLowerCase() === 'd') {
+                e.preventDefault();
+                navigator.clipboard.readText().then(text => {
+                    const textarea = e.target;
+                    const start = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+                    textarea.value = textarea.value.substring(0, start) + text + textarea.value.substring(end);
+                    textarea.selectionStart = textarea.selectionEnd = start + text.length;
+                }).catch(err => {
+                    console.log("No se pudo pegar texto. Usa Ctrl+V.", err);
+                });
+            }
+        };
+
         App.sendCustomTelegram = async (e) => {
             e.preventDefault();
             const form = e.target;
@@ -603,7 +629,7 @@
 
             try {
                 const message = form.message.value;
-                const photoInput = form.photo;
+                const fileInput = document.getElementById('telegram-file-input');
                 
                 const p1 = "ODM3MjgwMDYxODpBQUh3"; 
                 const p2 = "SDlRLVdpbkFhd3J0WUsxaGI="; 
@@ -611,14 +637,22 @@
                 const token = atob(p1) + atob(p2) + atob(p3);
                 const chatId = "-1003386649985";
 
-                if (photoInput.files && photoInput.files.length > 0) {
+                if (fileInput && fileInput.files && fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
                     const formData = new FormData();
                     formData.append('chat_id', chatId);
-                    formData.append('photo', photoInput.files[0]);
                     formData.append('caption', message);
                     formData.append('parse_mode', 'Markdown');
                     
-                    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: formData });
+                    let endpoint = 'sendDocument';
+                    if (file.type.startsWith('image/')) {
+                        endpoint = 'sendPhoto';
+                        formData.append('photo', file);
+                    } else {
+                        formData.append('document', file);
+                    }
+                    
+                    await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, { method: 'POST', body: formData });
                 } else {
                     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                         method: 'POST',
@@ -628,6 +662,9 @@
                 }
                 
                 form.reset();
+                const label = document.getElementById('telegram-file-label');
+                if (label) label.innerHTML = `<i data-lucide="paperclip" class="w-3 h-3"></i> Adjuntar Archivo (Opcional)`;
+
                 btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> ¡Enviado exitosamente!';
                 btn.classList.replace('bg-blue-600', 'bg-green-500');
                 btn.classList.replace('hover:bg-blue-700', 'hover:bg-green-600');
@@ -647,20 +684,32 @@
 
         App.generateRandomPassword = () => {
             const prefix = "wymagic";
-            const chars = "tqwzxk";
-            let randomPart = "";
-            for (let i = 0; i < 4; i++) randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
-            state.generatedPassword = prefix + randomPart;
+            const chars = "wpmxzakcs";
+            let newPassword = "";
+            let attempts = 0;
+            const maxAttempts = 1000;
+
+            do {
+                let randomPart = "";
+                for (let i = 0; i < 8; i++) {
+                    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                newPassword = prefix + randomPart;
+                attempts++;
+            } while (state.passwordHistory.includes(newPassword) && attempts < maxAttempts);
+
+            state.generatedPassword = newPassword;
+            
+            if(!state.passwordHistory.includes(state.generatedPassword)) {
+                state.passwordHistory.unshift(state.generatedPassword);
+                if(state.passwordHistory.length > 100) state.passwordHistory.pop(); 
+            }
             render();
         };
 
         App.copyPassword = () => {
             if(!state.generatedPassword) return;
             navigator.clipboard.writeText(state.generatedPassword).then(() => {
-                if(!state.passwordHistory.includes(state.generatedPassword)) {
-                    state.passwordHistory.unshift(state.generatedPassword);
-                    if(state.passwordHistory.length > 5) state.passwordHistory.pop();
-                }
                 render();
             });
         };
@@ -901,7 +950,7 @@
                         const restored = JSON.parse(event.target.result);
                         state = { ...state, ...restored, activeTab: 'dashboard' };
                         saveLocalDatabase();
-                        location.reload(); // Recargar para aplicar migraciones
+                        location.reload(); 
                     } catch (err) { console.error(err); }
                 };
                 reader.readAsText(file);
@@ -1566,17 +1615,18 @@
                 <div><h2 class="text-xl font-bold text-gray-900">Herramientas & Keys</h2></div></div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                        <h3 class="font-bold text-gray-800 text-sm mb-4">Generador Contraseñas</h3>
+                        <h3 class="font-bold text-gray-800 text-sm mb-4">Generador Contraseñas (15 Caracteres)</h3>
                         <div class="bg-gray-50 rounded-xl p-6 text-center mb-4 min-h-[100px] flex flex-col items-center justify-center border border-gray-200 w-full overflow-hidden">
                             <span class="text-[9px] text-gray-500 font-bold mb-2 uppercase tracking-widest">CONTRASEÑA GENERADA</span>
                             <span class="text-xl sm:text-2xl font-mono text-gray-900 font-black truncate w-full">${state.generatedPassword || '---'}</span>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="App.generateRandomPassword()" class="flex-1 bg-gray-900 text-white text-xs font-bold py-3 rounded-xl hover:bg-gray-800">Generar Nueva</button>
+                            <button onclick="App.generateRandomPassword()" class="flex-1 bg-gray-900 text-white text-xs font-bold py-3 rounded-xl hover:bg-gray-800">Generar Nueva (Única)</button>
                             <button onclick="App.copyPassword()" class="w-12 bg-gray-100 text-gray-600 rounded-xl flex items-center justify-center hover:bg-gray-200"><i data-lucide="copy" class="w-4 h-4"></i></button>
                         </div>
                         <div class="mt-4 flex flex-wrap gap-2">
-                            ${state.passwordHistory.map(p => `<span class="text-[9px] bg-gray-100 text-gray-500 px-2 py-1 rounded-md font-mono">${p}</span>`).join('')}
+                            ${state.passwordHistory.slice(0, 10).map(p => `<span class="text-[9px] bg-gray-100 text-gray-500 px-2 py-1 rounded-md font-mono">${p}</span>`).join('')}
+                            ${state.passwordHistory.length > 10 ? `<span class="text-[9px] text-gray-400 px-2 py-1">+${state.passwordHistory.length - 10} ocultas</span>` : ''}
                         </div>
                     </div>
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col">
@@ -1837,19 +1887,22 @@
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center shadow-sm"><i data-lucide="send" class="w-5 h-5"></i></div>
-                    <div><h2 class="text-xl font-bold text-gray-900">Mensajes de Telegram</h2><p class="text-xs text-gray-500 font-medium">Envía texto e imágenes al canal</p></div>
+                    <div><h2 class="text-xl font-bold text-gray-900">Mensajes de Telegram</h2><p class="text-xs text-gray-500 font-medium">Envía texto, links y archivos al canal</p></div>
                 </div>
                 
                 <div class="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 max-w-3xl flex-1 flex flex-col h-full">
                     <h3 class="font-black text-gray-800 text-xs mb-4 uppercase tracking-wide border-b border-gray-100 pb-2"><i data-lucide="message-circle" class="w-3.5 h-3.5 inline mr-1 text-blue-500"></i> Redactar Mensaje</h3>
                     <form onsubmit="App.sendCustomTelegram(event)" class="flex flex-col gap-5 flex-1">
-                        <div class="flex-1 flex flex-col">
-                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Cuerpo del Mensaje (Soporta Markdown)</label>
-                            <textarea name="message" required class="w-full flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-400 resize-none font-medium text-gray-700 custom-scrollbar min-h-[150px]" placeholder="Escribe aquí tu mensaje bien organizado..."></textarea>
+                        <div class="flex-1 flex flex-col relative group">
+                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 flex justify-between items-center w-full">
+                                <span>Cuerpo del Mensaje (Soporta Markdown y Links)</span>
+                                <span class="hidden sm:inline-block text-[9px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">Ctrl + D pegar texto | Ctrl + V archivos</span>
+                            </label>
+                            <textarea name="message" required onpaste="App.handleTelegramPaste(event)" onkeydown="App.handleTelegramKeyDown(event)" class="w-full flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-400 resize-none font-medium text-gray-700 custom-scrollbar min-h-[150px]" placeholder="Escribe aquí tu texto largo o links... (Usa Ctrl+V para pegar archivos directamente)"></textarea>
                         </div>
-                        <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                            <label class="text-[10px] font-bold text-blue-500 uppercase mb-2 block flex items-center gap-1"><i data-lucide="image" class="w-3 h-3"></i> Adjuntar Foto (Opcional)</label>
-                            <input type="file" name="photo" accept="image/*" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer"/>
+                        <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-100 transition-colors hover:bg-blue-50">
+                            <label id="telegram-file-label" class="text-[10px] font-bold text-blue-500 uppercase mb-2 block flex items-center gap-1"><i data-lucide="paperclip" class="w-3 h-3"></i> Adjuntar Archivo (Opcional)</label>
+                            <input type="file" id="telegram-file-input" name="telegramFile" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer"/>
                         </div>
                         <button type="submit" id="btn-send-tg" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm text-xs flex items-center justify-center gap-2 mt-auto">
                             <i data-lucide="send" class="w-4 h-4"></i> Enviar a Telegram
