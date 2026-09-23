@@ -59,6 +59,7 @@
             showResetModal: false, 
             showWeeklyConfigModal: false,
             showRechargeModal: false,
+            clientDebtModal: { show: false, clientId: null }, // Nuevo estado para visualizar deudas
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
@@ -69,6 +70,19 @@
                 startDay: 1, 
                 endDay: 0, 
                 currentStartDate: todayStr
+            },
+            
+            hourlyGoal: {
+                isActive: false,
+                goal: 7.00,
+                startTime: '08:00',
+                endTime: '18:00',
+                markedHours: []
+            },
+            
+            imeiData: {
+                savedTACs: [],
+                lastGenerated: [] // Cambiado a array para mejor manejo en interfaz
             },
 
             entityModal: { show: false, type: 'cliente', editingId: null },
@@ -133,11 +147,22 @@
                     }
 
                     if (!state.weeklyCycle) state.weeklyCycle = { isConfigured: false, startDay: 1, endDay: 0, currentStartDate: todayStr };
+                    if (!state.hourlyGoal) {
+                        state.hourlyGoal = { isActive: false, goal: 7.00, startTime: '08:00', endTime: '18:00', markedHours: [] };
+                    } else {
+                        if (state.hourlyGoal.isActive === undefined) state.hourlyGoal.isActive = false;
+                        if (!state.hourlyGoal.endTime) state.hourlyGoal.endTime = '18:00';
+                        if (!state.hourlyGoal.markedHours) state.hourlyGoal.markedHours = [];
+                    }
+                    if (!state.imeiData) state.imeiData = { savedTACs: [], lastGenerated: [] };
+                    // Migración si lastGenerated era string antiguo
+                    if (typeof state.imeiData.lastGenerated === 'string') state.imeiData.lastGenerated = [];
                     if (!state.paymentSheets[todayStr]) state.paymentSheets[todayStr] = getEmptyRows();
                     if (!state.supplierSheets[todayStr]) state.supplierSheets[todayStr] = getEmptyRows();
                     if (!state.selectedClients) state.selectedClients = []; 
                     if (!state.entityModal.editingId) state.entityModal.editingId = null;
                     if (!state.tabOrder.includes('telegram')) state.tabOrder.push('telegram');
+                    if (!state.clientDebtModal) state.clientDebtModal = { show: false, clientId: null };
                     
                     state.activeTab = 'dashboard';
                     state.activeDate = todayStr;
@@ -216,6 +241,7 @@
                     ${state.showResetModal ? renderResetModal() : ''}
                     ${state.showWeeklyConfigModal ? renderWeeklyConfigModal() : ''}
                     ${state.showRechargeModal ? renderRechargeModal() : ''}
+                    ${state.clientDebtModal.show ? renderClientDebtModal() : ''}
                 `;
                 lucide.createIcons();
 
@@ -234,6 +260,8 @@
                         }
                     }
                 }
+                
+                App.updateLiveClocks();
                 isRendering = false;
             });
         }
@@ -258,6 +286,33 @@
             const num = parseFloat(val) || 0;
             state.rateProfiles[id][curr] = num;
             App.calculateDebts();
+            render();
+        };
+
+        App.updateHourlyGoal = (field, value) => {
+            if(field === 'goal') state.hourlyGoal.goal = parseFloat(value) || 0;
+            else state.hourlyGoal[field] = value;
+            saveLocalDatabase();
+            render();
+        };
+
+        App.toggleWorkday = () => {
+            if (state.hourlyGoal.isActive) {
+                state.hourlyGoal.isActive = false;
+                state.hourlyGoal.markedHours = [];
+            } else {
+                state.hourlyGoal.isActive = true;
+                state.hourlyGoal.startHour = new Date().getHours();
+            }
+            saveLocalDatabase();
+            render();
+        };
+
+        App.toggleHourMark = (hour) => {
+            const idx = state.hourlyGoal.markedHours.indexOf(hour);
+            if (idx > -1) state.hourlyGoal.markedHours.splice(idx, 1);
+            else state.hourlyGoal.markedHours.push(hour);
+            saveLocalDatabase();
             render();
         };
 
@@ -682,6 +737,21 @@
             }
         };
 
+        App.copyText = (text, btnId) => {
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById(btnId);
+                if (btn) {
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 text-green-500"></i>';
+                    lucide.createIcons();
+                    setTimeout(() => {
+                        btn.innerHTML = originalHtml;
+                        lucide.createIcons();
+                    }, 1500);
+                }
+            }).catch(err => console.error('Error copiando texto: ', err));
+        };
+
         App.generateRandomPassword = () => {
             const prefix = "wymagic";
             const chars = "wpmxzakcs";
@@ -712,6 +782,57 @@
             navigator.clipboard.writeText(state.generatedPassword).then(() => {
                 render();
             });
+        };
+
+        App.calculateLuhn = (imeiBase) => {
+            let sum = 0;
+            let alternate = true;
+            for (let i = imeiBase.length - 1; i >= 0; i--) {
+                let n = parseInt(imeiBase.charAt(i), 10);
+                if (alternate) {
+                    n *= 2;
+                    if (n > 9) n = (n % 10) + 1;
+                }
+                sum += n;
+                alternate = !alternate;
+            }
+            return (10 - (sum % 10)) % 10;
+        };
+
+        App.generateIMEIs = (e) => {
+            e.preventDefault();
+            const tacInput = e.target.tac.value.replace(/\D/g, '').substring(0, 8);
+            if(tacInput.length !== 8) return;
+            const quantity = parseInt(e.target.quantity.value) || 1;
+            
+            let results = [];
+            for(let i = 0; i < quantity; i++) {
+                let serial = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+                let base = tacInput + serial;
+                let checksum = App.calculateLuhn(base);
+                results.push(base + checksum);
+            }
+            state.imeiData.lastGenerated = results;
+            render();
+        };
+
+        App.saveTAC = (e) => {
+            e.preventDefault();
+            const brand = e.target.brand.value.trim();
+            const model = e.target.model.value.trim();
+            const tac = e.target.tac.value.replace(/\D/g, '').substring(0, 8);
+            
+            if(brand && model && tac.length === 8) {
+                state.imeiData.savedTACs.push({ brand, model, tac });
+                state.imeiData.savedTACs.sort((a, b) => {
+                    if(a.brand.toLowerCase() === b.brand.toLowerCase()) {
+                        return a.model.localeCompare(b.model);
+                    }
+                    return a.brand.localeCompare(b.brand);
+                });
+                e.target.reset();
+                render();
+            }
         };
 
         App.setKeySearchQuery = (val) => { state.keySearchQuery = val; state.keySearchResult = null; render(); };
@@ -746,6 +867,15 @@
             render();
         };
 
+        App.openClientDebtModal = (id) => {
+            state.clientDebtModal = { show: true, clientId: id };
+            render();
+        };
+        App.closeClientDebtModal = () => {
+            state.clientDebtModal = { show: false, clientId: null };
+            render();
+        };
+
         App.setSalesInvestment = (val) => { state.salesData.initialInvestment = parseFloat(val) || 0; render(); };
         App.setSalesSearchQuery = (val) => { state.salesSearchQuery = val; render(); };
 
@@ -771,6 +901,7 @@
             const price = parseFloat(e.target.price.value) || 0;
             if(name && price > 0) {
                 state.salesData.products.push({ id: Date.now(), name, cost, price });
+                state.salesData.products.sort((a,b) => a.name.localeCompare(b.name));
                 e.target.reset();
                 render();
             }
@@ -924,7 +1055,30 @@
         };
         App.deleteMembership = (id) => { state.memberships = state.memberships.filter(m => m.id !== id); render(); };
 
-        App.setCalcBase = (base) => { state.calcState.displayBase = base; render(); };
+        App.setCalcBase = (newBase) => { 
+            if (state.calcState.displayBase === newBase) return;
+            const rates = App.getRates();
+            let bVal = parseFloat(state.calcState.baseValue) || 0;
+            let currentUsdtVal = 0;
+            
+            if (state.calcState.displayBase === 'USDT') currentUsdtVal = bVal;
+            else if (state.calcState.displayBase === 'COP') currentUsdtVal = bVal / rates.cop;
+            else if (state.calcState.displayBase === 'MXN') currentUsdtVal = bVal / rates.mxn;
+            
+            let newBaseVal = 0;
+            if (newBase === 'USDT') newBaseVal = currentUsdtVal;
+            else if (newBase === 'COP') newBaseVal = currentUsdtVal * rates.cop;
+            else if (newBase === 'MXN') newBaseVal = currentUsdtVal * rates.mxn;
+            
+            state.calcState.displayBase = newBase; 
+            if (bVal === 0) {
+                state.calcState.baseValue = '';
+            } else {
+                state.calcState.baseValue = Number.isInteger(newBaseVal) ? newBaseVal.toString() : newBaseVal.toFixed(2);
+            }
+            render(); 
+        };
+
         App.calcInput = (char) => {
             if (char === 'C') state.calcState.baseValue = '';
             else if (char === 'DEL') state.calcState.baseValue = state.calcState.baseValue.slice(0, -1);
@@ -1162,9 +1316,58 @@
 
             const sortedProducts = [...state.salesData.products].sort((a,b) => a.name.localeCompare(b.name));
 
+            let hoursList = [];
+            if (state.hourlyGoal.isActive) {
+                let sHour = state.hourlyGoal.startHour !== undefined ? state.hourlyGoal.startHour : new Date().getHours();
+                for(let i = sHour; i <= 23; i++) {
+                    hoursList.push(i.toString().padStart(2, '0') + ':00');
+                }
+            }
+
             return `
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 flex-shrink-0 max-w-4xl mx-auto w-full">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 flex-shrink-0 max-w-full mx-auto w-full">
+                    
+                    <!-- Meta por Hora Card -->
+                    ${!state.hourlyGoal.isActive ? `
+                    <div class="bg-cyan-50 rounded-xl p-3 shadow-sm border border-cyan-100 flex flex-col justify-between h-full group transition-all hover:shadow-md lg:col-span-1">
+                        <div class="flex justify-between items-center text-cyan-600 mb-2">
+                            <span class="text-[9px] font-black uppercase tracking-widest">Meta por Hora</span>
+                            <i data-lucide="clock" class="w-3 h-3 text-cyan-500"></i>
+                        </div>
+                        <div class="flex gap-2 items-center mb-2">
+                            <div class="flex-1 text-[9px] font-medium text-cyan-700 text-center bg-white/50 p-1.5 rounded border border-cyan-100">
+                                <span>Desde: <b class="font-black">Hora Actual</b></span><br>
+                                <span>Hasta: <b class="font-black">23:00</b></span>
+                            </div>
+                            <div class="w-16">
+                                <label class="text-[8px] text-cyan-600 font-bold uppercase mb-0.5 block text-center">Monto $/H</label>
+                                <input type="number" step="0.1" value="${state.hourlyGoal.goal}" onchange="App.updateHourlyGoal('goal', this.value)" class="w-full bg-white border border-cyan-200 rounded px-1 py-1 text-cyan-900 outline-none focus:border-cyan-400 font-black shadow-sm text-center text-xs"/>
+                            </div>
+                        </div>
+                        <button onclick="App.toggleWorkday()" class="w-full mt-auto bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] font-bold py-1.5 rounded-lg transition-colors shadow-sm flex justify-center items-center gap-1"><i data-lucide="play-circle" class="w-3.5 h-3.5"></i> Iniciar Jornada</button>
+                    </div>
+                    ` : `
+                    <div class="bg-cyan-50 rounded-xl p-3 shadow-sm border border-cyan-100 flex flex-col h-full group transition-all hover:shadow-md lg:col-span-1">
+                        <div class="flex justify-between items-center text-cyan-600 mb-1">
+                            <span class="text-[9px] font-black uppercase tracking-widest">Jornada Activa</span>
+                            <span class="text-[10px] font-black text-cyan-900 live-pc-clock font-mono">--:--:--</span>
+                        </div>
+                        <div class="flex justify-between items-end border-b border-cyan-200/50 pb-1 mb-1">
+                            <span class="text-[8px] font-bold text-cyan-600 uppercase block">Total Ganado</span>
+                            <span class="text-base font-black text-cyan-700">$${App.formatCurrency(state.hourlyGoal.markedHours.length * state.hourlyGoal.goal)}</span>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scrollbar mb-1 max-h-[70px]">
+                            <div class="grid grid-cols-4 gap-1 pr-1">
+                                ${hoursList.map(h => `
+                                    <button onclick="App.toggleHourMark('${h}')" class="px-1 py-1 rounded text-[8px] font-bold transition-colors border ${state.hourlyGoal.markedHours.includes(h) ? 'bg-cyan-500 text-white border-cyan-600 shadow-sm' : 'bg-white text-cyan-600 border-cyan-200 hover:bg-cyan-100'}">${h}</button>
+                                `).join('')}
+                            </div>
+                        </div>
+                        <button onclick="App.toggleWorkday()" class="w-full mt-auto bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold py-1.5 rounded-lg transition-colors shadow-sm flex justify-center items-center gap-1"><i data-lucide="stop-circle" class="w-3.5 h-3.5"></i> Finalizar</button>
+                    </div>
+                    `}
+
                     <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-between">
                         <div class="flex justify-between items-center text-gray-400 mb-1"><span class="text-[9px] font-black uppercase tracking-widest">Ganancias Semana</span><i data-lucide="trending-up" class="w-3 h-3 text-red-500"></i></div>
                         <span class="text-lg font-black text-gray-900">$${App.formatCurrency(wStats.totalConvertido)}</span>
@@ -1183,14 +1386,14 @@
                             <span class="text-[9px] font-bold text-gray-400 uppercase">Totales</span>
                         </div>
                         <div class="flex-1 overflow-hidden flex flex-col gap-0.5">
-                            <p class="text-[8px] font-black uppercase text-red-500 mt-0.5">Top 5 Deudas</p>
+                            <p class="text-[8px] font-black uppercase text-red-500 mt-0.5">Top Deudas</p>
                             ${(() => {
-                                const debtors = state.clients.filter(c => c.debt > 0).sort((a,b) => b.debt - a.debt).slice(0,5);
+                                const debtors = state.clients.filter(c => c.debt > 0).sort((a,b) => b.debt - a.debt).slice(0,3);
                                 if(debtors.length === 0) return '<div class="text-[9px] font-medium text-gray-400 mt-1">Sin deudas pendientes</div>';
                                 return debtors.map(c => `
                                     <div class="flex justify-between items-center text-[9px] font-bold text-gray-600">
                                         <span class="truncate pr-1 w-20 sm:w-24">${c.name}</span>
-                                        <span class="text-red-500 flex-shrink-0">$${App.formatCurrency(c.debt, c.currency)} <span class="text-[7px] uppercase">${c.currency}</span></span>
+                                        <span class="text-red-500 flex-shrink-0">$${App.formatCurrency(c.debt, c.currency)}</span>
                                     </div>
                                 `).join('');
                             })()}
@@ -1574,6 +1777,7 @@
                                         ${c.debt > 0 ? `
                                             <button onclick="App.markEntityAsPaid(${c.id}, 'cliente')" class="text-[10px] font-bold text-green-600 bg-green-50 hover:bg-green-100 px-2 py-1 rounded transition-colors shadow-sm whitespace-nowrap hidden sm:inline-flex items-center gap-1"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Pagar</button>
                                             <button id="invoice-btn-${c.id}" onclick="App.generateInvoiceAndSend(${c.id})" class="text-gray-400 hover:text-blue-500 transition-colors" title="Enviar Factura a Telegram"><i data-lucide="file-text" class="w-3.5 h-3.5"></i></button>
+                                            <button onclick="App.openClientDebtModal(${c.id})" class="text-gray-400 hover:text-purple-500 transition-colors" title="Ver detalles de deudas"><i data-lucide="eye" class="w-3.5 h-3.5"></i></button>
                                         ` : ''}
                                         <button onclick="App.openEntityModal('cliente', ${c.id})" class="text-gray-300 hover:text-blue-500 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="edit-2" class="w-3.5 h-3.5"></i></button>
                                         <button onclick="App.deleteEntity('cliente', ${c.id})" class="text-gray-300 hover:text-red-500 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
@@ -1613,7 +1817,7 @@
             <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
                 <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shadow-sm"><i data-lucide="key" class="w-5 h-5"></i></div>
                 <div><h2 class="text-xl font-bold text-gray-900">Herramientas & Keys</h2></div></div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-shrink-0">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
                         <h3 class="font-bold text-gray-800 text-sm mb-4">Generador Contraseñas (15 Caracteres)</h3>
                         <div class="bg-gray-50 rounded-xl p-6 text-center mb-4 min-h-[100px] flex flex-col items-center justify-center border border-gray-200 w-full overflow-hidden">
@@ -1651,6 +1855,71 @@
                              </div>
                         </form>
                     </div>
+                </div>
+
+                <!-- IMEI Generator Section Mejora de Diseño -->
+                <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mt-2">
+                    <h3 class="font-bold text-sm mb-5 flex items-center gap-2 text-purple-700">
+                        <div class="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center"><i data-lucide="smartphone" class="w-4 h-4"></i></div>
+                        Generador de IMEI Avanzado
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-gray-100 pb-6 mb-6">
+                        
+                        <!-- Guardar TAC -->
+                        <div class="flex flex-col gap-3 bg-purple-50/40 p-4 rounded-xl border border-purple-100/50">
+                            <h4 class="text-[10px] font-black uppercase text-purple-600 tracking-wider flex items-center gap-1.5"><i data-lucide="database" class="w-3.5 h-3.5"></i> Guardar Base TAC</h4>
+                            <form onsubmit="App.saveTAC(event)" class="flex flex-col gap-2">
+                                <div class="flex gap-2">
+                                    <input type="text" name="brand" placeholder="Marca (Ej: Samsung)" required class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-purple-400 shadow-sm"/>
+                                    <input type="text" name="model" placeholder="Modelo (Ej: A51)" required class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-purple-400 shadow-sm"/>
+                                </div>
+                                <div class="flex gap-2">
+                                    <input type="text" name="tac" placeholder="TAC (8 Dígitos)" required pattern="\\d{8}" maxlength="8" title="El TAC debe contener exactamente 8 números" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-purple-400 font-mono shadow-sm"/>
+                                    <button type="submit" class="bg-purple-600 text-white font-bold px-4 rounded-lg text-xs hover:bg-purple-700 transition-colors shadow-sm">Guardar</button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Generar IMEIs -->
+                        <div class="flex flex-col gap-3 bg-purple-50/40 p-4 rounded-xl border border-purple-100/50">
+                            <h4 class="text-[10px] font-black uppercase text-purple-600 tracking-wider flex items-center gap-1.5"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> Generar IMEIs Aleatorios</h4>
+                            <form onsubmit="App.generateIMEIs(event)" class="flex flex-col gap-2">
+                                <select name="savedTac" onchange="document.getElementById('manual-tac').value = this.value" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-purple-400 shadow-sm">
+                                    <option value="">Seleccionar de guardados...</option>
+                                    ${state.imeiData.savedTACs.map(t => `<option value="${t.tac}">${t.brand} ${t.model} (${t.tac})</option>`).join('')}
+                                </select>
+                                <div class="flex gap-2">
+                                    <input type="text" id="manual-tac" name="tac" placeholder="Ingresar TAC..." required pattern="\\d{8}" maxlength="8" title="El TAC debe contener exactamente 8 números" class="flex-1 bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-purple-400 font-mono shadow-sm"/>
+                                    <input type="number" name="quantity" placeholder="Cant." required min="1" max="100" class="w-20 bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-purple-400 shadow-sm"/>
+                                    <button type="submit" class="bg-gray-900 text-white font-bold px-4 rounded-lg text-xs hover:bg-gray-800 transition-colors shadow-sm flex items-center justify-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5"></i> Generar</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    ${Array.isArray(state.imeiData.lastGenerated) && state.imeiData.lastGenerated.length > 0 ? `
+                    <div>
+                        <div class="flex justify-between items-center mb-3">
+                            <label class="text-[10px] font-black text-purple-600 uppercase tracking-wider">Resultados Generados (${state.imeiData.lastGenerated.length})</label>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-60 overflow-y-auto custom-scrollbar p-1">
+                            ${state.imeiData.lastGenerated.map((imei, idx) => `
+                                <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-2.5 shadow-sm hover:border-purple-300 transition-colors group">
+                                    <span class="font-mono text-xs font-bold text-gray-700 select-all">${imei}</span>
+                                    <button id="copy-imei-${idx}" onclick="App.copyText('${imei}', 'copy-imei-${idx}')" class="text-gray-400 hover:text-purple-600 transition-colors p-1.5 bg-gray-50 hover:bg-purple-50 rounded-md" title="Copiar IMEI">
+                                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : `
+                    <div class="text-center py-6">
+                        <i data-lucide="smartphone" class="w-8 h-8 text-gray-300 mx-auto mb-2 opacity-50"></i>
+                        <p class="text-xs font-medium text-gray-400">Genera IMEIs y aparecerán aquí listos para copiar.</p>
+                    </div>
+                    `}
                 </div>
             </div>`; 
         }
@@ -2039,6 +2308,72 @@
             </div>`;
         }
 
+        function renderClientDebtModal() {
+            if(!state.clientDebtModal.show || !state.clientDebtModal.clientId) return '';
+            const client = state.clients.find(c => c.id === state.clientDebtModal.clientId);
+            if(!client) return '';
+
+            let debts = [];
+            Object.keys(state.paymentSheets).forEach(date => {
+                state.paymentSheets[date].forEach(row => {
+                    if (row.targetId == client.id && row.pagado === 'no' && parseFloat(row.precio) > 0) {
+                        debts.push({ date, ...row });
+                    }
+                });
+            });
+
+            // sort by date desc
+            debts.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl w-full max-w-2xl shadow-xl flex flex-col max-h-[85vh]">
+                    <div class="p-4 sm:p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
+                        <div>
+                            <h3 class="text-sm font-black text-gray-900 uppercase tracking-tight flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4 text-purple-600"></i> Detalle de Deudas</h3>
+                            <p class="text-[11px] text-gray-500 font-bold mt-0.5">Cliente: <span class="text-gray-800">${client.name}</span></p>
+                        </div>
+                        <button onclick="App.closeClientDebtModal()" class="w-8 h-8 flex items-center justify-center bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300 transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-auto p-4 sm:p-5 custom-scrollbar">
+                        ${debts.length === 0 ? `
+                            <div class="text-center py-12">
+                                <i data-lucide="check-circle" class="w-12 h-12 text-green-400 mx-auto mb-3 opacity-50"></i>
+                                <p class="text-sm font-bold text-gray-500">Este cliente no tiene deudas pendientes registradas.</p>
+                            </div>
+                        ` : `
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse min-w-[500px]">
+                                    <thead>
+                                        <tr>
+                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">Fecha de Registro</th>
+                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">Servicio / Trabajo Realizado</th>
+                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 text-center">Cant.</th>
+                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 text-right">Monto</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-50">
+                                        ${debts.map(d => `
+                                            <tr class="hover:bg-gray-50 transition-colors">
+                                                <td class="p-2 text-[11px] font-medium text-gray-600 whitespace-nowrap"><i data-lucide="calendar" class="w-3 h-3 inline mr-1 text-gray-400 mb-0.5"></i>${d.date}</td>
+                                                <td class="p-2 text-xs font-bold text-gray-800">${d.trabajo || 'Servicio General'}</td>
+                                                <td class="p-2 text-xs font-bold text-gray-600 text-center bg-gray-50/50 rounded-lg">x${d.cant}</td>
+                                                <td class="p-2 text-xs font-black text-red-500 text-right">$${App.formatCurrency(d.precio, d.metodo)} <span class="text-[9px] text-gray-400 font-bold ml-0.5">${(d.metodo||'cop').toUpperCase()}</span></td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `}
+                    </div>
+                    <div class="p-4 sm:p-5 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-between items-center">
+                        <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">Deuda Total Acumulada</span>
+                        <span class="text-xl font-black text-red-600">$${App.formatCurrency(client.debt, client.currency)} <span class="text-xs text-gray-500 font-bold ml-0.5">${client.currency.toUpperCase()}</span></span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
         function renderNextDayModal() {
             return `
             <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -2095,9 +2430,20 @@
             </div>`;
         }
 
+        App.updateLiveClocks = () => {
+            const clockEls = document.querySelectorAll('.live-pc-clock');
+            if (clockEls.length > 0) {
+                const now = new Date();
+                const timeString = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                clockEls.forEach(el => el.textContent = timeString);
+            }
+        };
+
         window.onload = () => { 
             App.checkResponsive();
             render(); 
+            setInterval(App.updateLiveClocks, 1000);
+            App.updateLiveClocks();
         };
     </script>
 </body>
