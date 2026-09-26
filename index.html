@@ -59,7 +59,7 @@
             showResetModal: false, 
             showWeeklyConfigModal: false,
             showRechargeModal: false,
-            clientDebtModal: { show: false, clientId: null }, // Nuevo estado para visualizar deudas
+            clientDebtModal: { show: false, clientId: null }, 
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
@@ -79,9 +79,8 @@
                 generatedText: ''
             },
 
-            // Nuevos estados para Telegram
             telegramLibrary: [],
-            currentTelegramMethod: { model: '', codename: '', android: '', build: '', tool: '', hasLink: false, link: '', links: [{url: '', description: ''}], messageText: '' },
+            currentTelegramMethod: { model: '', codename: '', android: '', securityPatch: '', build: '', tool: '', hasLink: false, link: '', links: [{url: '', description: ''}], messageText: '' },
             showTelegramLibrary: false,
             telegramLibrarySearch: '',
             telegramViewModal: { show: false, methodId: null },
@@ -175,11 +174,11 @@
                         if (!state.hourlyGoal.endTime) state.hourlyGoal.endTime = '18:00';
                         if (!state.hourlyGoal.markedHours) state.hourlyGoal.markedHours = [];
                     }
-                    // Migración si lastGenerated era string antiguo
                     if (typeof state.imeiData.lastGenerated === 'string') state.imeiData.lastGenerated = [];
                     if (!state.paymentSheets[todayStr]) state.paymentSheets[todayStr] = getEmptyRows();
-                    if (!state.currentTelegramMethod) state.currentTelegramMethod = { model: '', codename: '', android: '', build: '', tool: '', hasLink: false, link: '', links: [{url: '', description: ''}], messageText: '' };
+                    if (!state.currentTelegramMethod) state.currentTelegramMethod = { model: '', codename: '', android: '', securityPatch: '', build: '', tool: '', hasLink: false, link: '', links: [{url: '', description: ''}], messageText: '' };
                     if (state.currentTelegramMethod.codename === undefined) state.currentTelegramMethod.codename = '';
+                    if (state.currentTelegramMethod.securityPatch === undefined) state.currentTelegramMethod.securityPatch = '';
                     
                     if (state.currentTelegramMethod.links === undefined) {
                         state.currentTelegramMethod.links = state.currentTelegramMethod.link ? [{url: state.currentTelegramMethod.link, description: ''}] : [{url: '', description: ''}];
@@ -751,7 +750,11 @@
                     if (m.codename && m.codename.trim() !== '') {
                         metadataStr += `🏷️ *Codename:* ${m.codename}\n`;
                     }
-                    metadataStr += `🤖 *Android:* ${m.android}\n⚙️ *Compilación:* ${m.build}\n🛠 *Herramienta:* ${m.tool}\n`;
+                    metadataStr += `🤖 *Android:* ${m.android}\n`;
+                    if (m.securityPatch && m.securityPatch.trim() !== '') {
+                        metadataStr += `🛡️ *Parche de Seguridad:* ${m.securityPatch}\n`;
+                    }
+                    metadataStr += `⚙️ *Compilación:* ${m.build}\n🛠 *Herramienta:* ${m.tool}\n`;
                     if (m.hasLink && m.links && m.links.length > 0) {
                         const validLinks = m.links.filter(l => l.url && l.url.trim() !== '');
                         if (validLinks.length > 0) {
@@ -876,7 +879,7 @@
                 const methodCopy = JSON.parse(JSON.stringify(m));
                 const newMethod = {
                     ...methodCopy,
-                    id: Date.now() + Math.floor(Math.random() * 10000), // Genera un ID siempre único
+                    id: Date.now() + Math.floor(Math.random() * 10000), 
                     date: new Date().toLocaleDateString()
                 };
                 state.telegramLibrary.unshift(newMethod);
@@ -1431,6 +1434,7 @@
             if(type === 'payments') data = state.paymentSheets;
             if(type === 'suppliers') data = state.supplierSheets;
             if(type === 'keys') data = state.keysStore;
+            if(type === 'telegram') data = { telegramLibrary: state.telegramLibrary };
             
             const now = new Date();
             const dateStr = now.toLocaleDateString('es-ES').replace(/\//g, '-');
@@ -2477,6 +2481,7 @@
                                     </div>
                                     <div class="flex flex-wrap gap-1.5 text-[9px] text-gray-500 font-bold uppercase tracking-wide">
                                         <span class="bg-gray-100 px-2 py-1 rounded">Android: <span class="text-gray-800">${item.android}</span></span>
+                                        <span class="bg-gray-100 px-2 py-1 rounded">Build: <span class="text-gray-800">${item.build}</span></span>
                                         <span class="bg-gray-100 px-2 py-1 rounded">Tool: <span class="text-gray-800">${item.tool}</span></span>
                                         ${item.hasLink ? `<span class="bg-blue-50 text-blue-600 px-2 py-1 rounded flex items-center gap-1 border border-blue-100"><i data-lucide="link" class="w-2.5 h-2.5"></i> Link Adjunto</span>` : ''}
                                     </div>
@@ -2502,7 +2507,7 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
                         <div>
                             <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Modelo *</label>
                             <input id="tg-model" type="text" value="${m.model}" oninput="App.updateCurrentMethod('model', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: SM-G998B"/>
@@ -2516,6 +2521,10 @@
                             <input id="tg-android" type="text" value="${m.android}" oninput="App.updateCurrentMethod('android', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: 13"/>
                         </div>
                         <div>
+                            <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Parche de Seg.</label>
+                            <input id="tg-secpatch" type="text" value="${m.securityPatch || ''}" oninput="App.updateCurrentMethod('securityPatch', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: 2023-08-01"/>
+                        </div>
+                        <div>
                             <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Compilación *</label>
                             <input id="tg-build" type="text" value="${m.build}" oninput="App.updateCurrentMethod('build', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: U1, U2, BIT..."/>
                         </div>
@@ -2523,7 +2532,7 @@
                             <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Herramienta *</label>
                             <input id="tg-tool" type="text" value="${m.tool}" oninput="App.updateCurrentMethod('tool', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: UnlockTool"/>
                         </div>
-                        <div class="col-span-1 sm:col-span-2 lg:col-span-5 flex flex-col gap-3 bg-white p-3 rounded-lg border border-gray-200 shadow-sm mt-1">
+                        <div class="col-span-1 sm:col-span-2 lg:col-span-6 flex flex-col gap-3 bg-white p-3 rounded-lg border border-gray-200 shadow-sm mt-1">
                             <label class="flex items-center gap-2 cursor-pointer flex-shrink-0 w-max">
                                 <input id="tg-haslink" type="checkbox" ${m.hasLink ? 'checked' : ''} onchange="App.updateCurrentMethod('hasLink', this.checked)" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"/>
                                 <span class="text-[10px] font-bold text-gray-700 uppercase">Añadir Links de Descarga</span>
@@ -2594,7 +2603,6 @@
 
                 <div id="loggen-scroll-container" class="flex-1 overflow-y-auto custom-scrollbar pb-4 flex flex-col gap-4">
                     
-                    <!-- SECCIÓN: GENERADOR DE LOGS -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-shrink-0">
                         <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col h-max">
                             <h3 class="font-black text-gray-800 text-xs mb-4 uppercase tracking-wide border-b border-gray-100 pb-2"><i data-lucide="settings-2" class="w-3.5 h-3.5 inline mr-1 text-gray-500"></i> Parámetros del Log</h3>
@@ -2654,7 +2662,6 @@
                         </div>
                     </div>
 
-                    <!-- SECCIÓN: GENERADOR DE CONEXIÓN -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-shrink-0">
                         <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col h-max border-t-4 border-t-blue-500">
                             <h3 class="font-black text-gray-800 text-xs mb-4 uppercase tracking-wide border-b border-gray-100 pb-2 flex items-center gap-1.5"><i data-lucide="link" class="w-3.5 h-3.5 text-blue-500"></i> Parámetros de Conexión</h3>
@@ -2746,11 +2753,12 @@
 
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
                     <h3 class="font-bold text-sm mb-4 flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-blue-500"></i> Backups y Telegram</h3>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-3 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Todo</button>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                        <button onclick="App.exportData('all')" class="col-span-2 sm:col-span-4 bg-gray-900 text-white text-xs font-bold py-3 sm:py-2.5 rounded-lg hover:bg-gray-800">Exportar Todo</button>
                         <button onclick="App.exportData('payments')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Ingresos</button>
                         <button onclick="App.exportData('suppliers')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Egresos</button>
-                        <button onclick="App.exportData('keys')" class="col-span-2 sm:col-span-1 bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Keys Store</button>
+                        <button onclick="App.exportData('keys')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Keys Store</button>
+                        <button onclick="App.exportData('telegram')" class="bg-gray-100 text-gray-700 text-[10px] font-bold py-3 sm:py-2 rounded-lg hover:bg-gray-200">Telegram Lib.</button>
                     </div>
                     <div class="relative w-full border-2 border-dashed border-gray-200 rounded-xl p-6 sm:p-4 text-center hover:bg-gray-50 transition-colors">
                         <input type="file" accept=".json" onchange="App.restoreBackup(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
@@ -2974,7 +2982,8 @@
                             <div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Modelo</span> <span class="font-black text-gray-900 text-lg break-words">${m.model}</span></div>
                             ${m.codename ? `<div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Codename</span> <span class="font-black text-gray-900 text-lg break-words">${m.codename}</span></div>` : ''}
                             <div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Android</span> <span class="font-black text-gray-900 text-lg break-words">${m.android}</span></div>
-                            <div class="sm:col-span-2 lg:col-span-1"><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Compilación</span> <span class="font-black text-gray-900 text-lg break-all">${m.build}</span></div>
+                            ${m.securityPatch ? `<div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Parche Seg.</span> <span class="font-black text-gray-900 text-lg break-words">${m.securityPatch}</span></div>` : ''}
+                            <div class="${m.securityPatch ? '' : 'sm:col-span-2 lg:col-span-1'}"><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Compilación</span> <span class="font-black text-gray-900 text-lg break-all">${m.build}</span></div>
                             <div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Herramienta</span> <span class="font-black text-gray-900 text-lg break-words">${m.tool}</span></div>
                         </div>
                         ${linksHtml ? `
