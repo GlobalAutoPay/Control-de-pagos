@@ -79,6 +79,13 @@
                 generatedText: ''
             },
 
+            // Nuevos estados para Telegram
+            telegramLibrary: [],
+            currentTelegramMethod: { model: '', codename: '', android: '', build: '', tool: '', hasLink: false, link: '', links: [{url: '', description: ''}], messageText: '' },
+            showTelegramLibrary: false,
+            telegramLibrarySearch: '',
+            telegramViewModal: { show: false, methodId: null },
+
             weeklyCycle: {
                 isConfigured: false,
                 startDay: 1, 
@@ -96,7 +103,7 @@
             
             imeiData: {
                 savedTACs: [],
-                lastGenerated: [] // Cambiado a array para mejor manejo en interfaz
+                lastGenerated: [] 
             },
 
             entityModal: { show: false, type: 'cliente', editingId: null },
@@ -168,15 +175,29 @@
                         if (!state.hourlyGoal.endTime) state.hourlyGoal.endTime = '18:00';
                         if (!state.hourlyGoal.markedHours) state.hourlyGoal.markedHours = [];
                     }
-                    if (!state.imeiData) state.imeiData = { savedTACs: [], lastGenerated: [] };
                     // Migración si lastGenerated era string antiguo
                     if (typeof state.imeiData.lastGenerated === 'string') state.imeiData.lastGenerated = [];
                     if (!state.paymentSheets[todayStr]) state.paymentSheets[todayStr] = getEmptyRows();
-                    if (!state.supplierSheets[todayStr]) state.supplierSheets[todayStr] = getEmptyRows();
-                    if (!state.selectedClients) state.selectedClients = []; 
-                    if (!state.entityModal.editingId) state.entityModal.editingId = null;
-                    if (!state.tabOrder.includes('telegram')) state.tabOrder.push('telegram');
+                    if (!state.currentTelegramMethod) state.currentTelegramMethod = { model: '', codename: '', android: '', build: '', tool: '', hasLink: false, link: '', links: [{url: '', description: ''}], messageText: '' };
+                    if (state.currentTelegramMethod.codename === undefined) state.currentTelegramMethod.codename = '';
                     
+                    if (state.currentTelegramMethod.links === undefined) {
+                        state.currentTelegramMethod.links = state.currentTelegramMethod.link ? [{url: state.currentTelegramMethod.link, description: ''}] : [{url: '', description: ''}];
+                    } else if (state.currentTelegramMethod.links.length > 0 && typeof state.currentTelegramMethod.links[0] === 'string') {
+                        state.currentTelegramMethod.links = state.currentTelegramMethod.links.map(l => ({url: l, description: ''}));
+                    }
+
+                    if (state.telegramLibrary) {
+                        state.telegramLibrary = state.telegramLibrary.map(m => {
+                            if (m.links === undefined) m.links = m.link ? [{url: m.link, description: ''}] : [{url: '', description: ''}];
+                            else if (m.links.length > 0 && typeof m.links[0] === 'string') {
+                                m.links = m.links.map(l => ({url: l, description: ''}));
+                            }
+                            return m;
+                        });
+                    }
+                    if (!state.telegramViewModal) state.telegramViewModal = { show: false, methodId: null };
+
                     if (!state.tabOrder.includes('loggen')) {
                         const settingsIndex = state.tabOrder.indexOf('settings');
                         if (settingsIndex !== -1) {
@@ -196,6 +217,7 @@
                     state.showResetModal = false;
                     state.showWeeklyConfigModal = false;
                     state.saveStatus = null;
+                    state.showTelegramLibrary = false;
                 }
             } catch (e) {
                 console.error("Error al cargar la base de datos local:", e);
@@ -271,6 +293,7 @@
                     ${state.showWeeklyConfigModal ? renderWeeklyConfigModal() : ''}
                     ${state.showRechargeModal ? renderRechargeModal() : ''}
                     ${state.clientDebtModal.show ? renderClientDebtModal() : ''}
+                    ${state.telegramViewModal.show ? renderTelegramViewModal() : ''}
                 `;
                 lucide.createIcons();
 
@@ -702,6 +725,7 @@
                     const end = textarea.selectionEnd;
                     textarea.value = textarea.value.substring(0, start) + text + textarea.value.substring(end);
                     textarea.selectionStart = textarea.selectionEnd = start + text.length;
+                    App.updateCurrentMethod('messageText', textarea.value);
                 }).catch(err => {
                     console.log("No se pudo pegar texto. Usa Ctrl+V.", err);
                 });
@@ -717,9 +741,32 @@
             btn.disabled = true;
 
             try {
-                const message = form.message.value;
+                let message = form.message.value;
                 const fileInput = document.getElementById('telegram-file-input');
                 
+                // Si estamos redactando un método, añadimos la metadata al inicio del mensaje
+                if (!state.showTelegramLibrary) {
+                    const m = state.currentTelegramMethod;
+                    let metadataStr = `📱 *Modelo:* ${m.model}\n`;
+                    if (m.codename && m.codename.trim() !== '') {
+                        metadataStr += `🏷️ *Codename:* ${m.codename}\n`;
+                    }
+                    metadataStr += `🤖 *Android:* ${m.android}\n⚙️ *Compilación:* ${m.build}\n🛠 *Herramienta:* ${m.tool}\n`;
+                    if (m.hasLink && m.links && m.links.length > 0) {
+                        const validLinks = m.links.filter(l => l.url && l.url.trim() !== '');
+                        if (validLinks.length > 0) {
+                            validLinks.forEach((l, i) => {
+                                const desc = l.description && l.description.trim() !== '' ? l.description.trim() : `Link ${validLinks.length > 1 ? i + 1 : ''}`;
+                                metadataStr += `🔗 *${desc}:* [Descargar aquí](${l.url.trim()})\n`;
+                            });
+                        }
+                    } else if (m.hasLink && m.link) {
+                        metadataStr += `🔗 *Link:* [Descargar aquí](${m.link})\n`;
+                    }
+                    metadataStr += `\n`;
+                    message = metadataStr + message;
+                }
+
                 const p1 = "ODM3MjgwMDYxODpBQUh3"; 
                 const p2 = "SDlRLVdpbkFhd3J0WUsxaGI="; 
                 const p3 = "d1hHNk1QMEhUaW9pQWc=";
@@ -751,12 +798,14 @@
                 }
                 
                 form.reset();
+                state.currentTelegramMethod.messageText = '';
                 const label = document.getElementById('telegram-file-label');
-                if (label) label.innerHTML = `<i data-lucide="paperclip" class="w-3 h-3"></i> Adjuntar Archivo (Opcional)`;
+                if (label) label.innerHTML = `<i data-lucide="paperclip" class="w-3 h-3"></i> Adjuntar Archivo/Imagen (Opcional)`;
 
                 btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> ¡Enviado exitosamente!';
                 btn.classList.replace('bg-blue-600', 'bg-green-500');
                 btn.classList.replace('hover:bg-blue-700', 'hover:bg-green-600');
+                
                 setTimeout(() => {
                     btn.innerHTML = originalText;
                     btn.classList.replace('bg-green-500', 'bg-blue-600');
@@ -771,6 +820,109 @@
             }
         };
 
+        App.updateCurrentMethod = (field, value) => {
+            if (field === 'hasLink') {
+                state.currentTelegramMethod.hasLink = value;
+                if (!value) {
+                    state.currentTelegramMethod.link = '';
+                    state.currentTelegramMethod.links = [{url: '', description: ''}];
+                } else if (!state.currentTelegramMethod.links || state.currentTelegramMethod.links.length === 0) {
+                    state.currentTelegramMethod.links = [{url: '', description: ''}];
+                }
+            } else {
+                state.currentTelegramMethod[field] = value;
+            }
+            render();
+        };
+
+        App.updateMethodLink = (index, field, value) => {
+            if (!state.currentTelegramMethod.links) state.currentTelegramMethod.links = [{url: '', description: ''}];
+            if (!state.currentTelegramMethod.links[index]) state.currentTelegramMethod.links[index] = {url: '', description: ''};
+            state.currentTelegramMethod.links[index][field] = value;
+            render();
+        };
+
+        App.addMethodLink = () => {
+            if (!state.currentTelegramMethod.links) state.currentTelegramMethod.links = [{url: '', description: ''}];
+            state.currentTelegramMethod.links.push({url: '', description: ''});
+            render();
+        };
+
+        App.removeMethodLink = (index) => {
+            if (!state.currentTelegramMethod.links) return;
+            state.currentTelegramMethod.links.splice(index, 1);
+            if (state.currentTelegramMethod.links.length === 0) {
+                state.currentTelegramMethod.hasLink = false;
+                state.currentTelegramMethod.links = [{url: '', description: ''}];
+            }
+            render();
+        };
+
+        App.openTelegramViewModal = (id) => {
+            state.telegramViewModal = { show: true, methodId: id };
+            render();
+        };
+
+        App.closeTelegramViewModal = () => {
+            state.telegramViewModal = { show: false, methodId: null };
+            render();
+        };
+
+        App.saveMethodToLibrary = () => {
+            const m = state.currentTelegramMethod;
+            const isReady = m.model.trim() !== '' && m.android.trim() !== '' && m.build.trim() !== '' && m.tool.trim() !== '';
+
+            if (isReady) {
+                const methodCopy = JSON.parse(JSON.stringify(m));
+                const newMethod = {
+                    ...methodCopy,
+                    id: Date.now() + Math.floor(Math.random() * 10000), // Genera un ID siempre único
+                    date: new Date().toLocaleDateString()
+                };
+                state.telegramLibrary.unshift(newMethod);
+                
+                const btn = document.getElementById('btn-save-method');
+                if(btn) {
+                    const orig = btn.innerHTML;
+                    btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Guardado';
+                    btn.classList.add('bg-green-500', 'text-white');
+                    btn.classList.remove('bg-gray-100', 'text-gray-700');
+                    lucide.createIcons();
+                    setTimeout(() => {
+                        btn.innerHTML = orig;
+                        btn.classList.remove('bg-green-500', 'text-white');
+                        btn.classList.add('bg-gray-100', 'text-gray-700');
+                        lucide.createIcons();
+                    }, 2000);
+                }
+                saveLocalDatabase();
+            }
+        };
+
+        App.toggleTelegramLibrary = () => {
+            state.showTelegramLibrary = !state.showTelegramLibrary;
+            render();
+        };
+
+        App.setTelegramLibrarySearch = (val) => {
+            state.telegramLibrarySearch = val;
+            render();
+        };
+
+        App.loadMethodFromLibrary = (id) => {
+            const method = state.telegramLibrary.find(m => String(m.id) === String(id));
+            if (method) {
+                state.currentTelegramMethod = JSON.parse(JSON.stringify(method));
+                state.showTelegramLibrary = false;
+                render();
+            }
+        };
+
+        App.deleteMethodFromLibrary = (id) => {
+            state.telegramLibrary = state.telegramLibrary.filter(m => String(m.id) !== String(id));
+            render();
+        };
+
         App.generateDeviceLog = (e) => {
             e.preventDefault();
             const brand = e.target.brand.value;
@@ -778,12 +930,10 @@
             const device = e.target.device.value;
             const build = e.target.build.value;
 
-            // Generador de Token de 14 digitos (letras y números)
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
             let token = '';
             for(let i = 0; i < 14; i++) token += chars.charAt(Math.floor(Math.random() * chars.length));
 
-            // Tiempo aleatorio: FRP por defecto (1-3 min), Xiaomi MDM (1-5 min), Samsung FRP (1-10 min), Motorola FRP (1-8 min)
             let maxSecs = 180;
             if (brand === 'Xiaomi' && logType === 'MDM') maxSecs = 300;
             else if (brand === 'Samsung' && logType === 'FRP') maxSecs = 600;
@@ -814,7 +964,7 @@
             } else if (brand === 'Motorola' && logType === 'FRP') {
                 log += `Remove Motorola FRP\n\n`;
                 log += `Device: ${device}\n`;
-                log += `SN: ${build}\n\n`; // Se usa el input de Build para el SN
+                log += `SN: ${build}\n\n`; 
                 log += `Conecting Server: Ok!\n`;
                 log += `Donwload wYMagicData: Ok!\n\n`;
                 log += `IniwYMagicData: Ok!\n`;
@@ -825,7 +975,6 @@
                 log += `Reboot: Ok!\n\n`;
                 log += `Elase Time: ${timeStr}`;
             } else {
-                // Estructura por defecto para Xiaomi y otras marcas
                 log += `Remove ${brand} ${logType}\n\n`;
                 log += `Device: ${device}\n`;
                 log += `Buil: ${build}\n\n`;
@@ -836,7 +985,6 @@
                 log += `Decrypt  Auth Token: Ok!\n\n`;
                 log += `Authorized Device: Ok!\n\n`;
 
-                // Lógica especial para Xiaomi MDM
                 if (brand === 'Xiaomi' && logType === 'MDM') {
                     const regions = ['CUA', 'EBE', 'GLO', 'PNT'];
                     const randomRegion = regions[Math.floor(Math.random() * regions.length)];
@@ -1915,7 +2063,7 @@
                             </div>
                         </div>
                         <div class="flex-1 overflow-auto p-2 custom-scrollbar">
-                            ${state.clients.map(c => `
+                            ${[...state.clients].sort((a,b) => a.name.localeCompare(b.name)).map(c => `
                                 <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl group border border-transparent hover:border-gray-100 transition-colors">
                                     <div class="flex items-center gap-3 truncate pr-2">
                                         <input type="checkbox" onchange="App.toggleClientSelection(${c.id})" ${state.selectedClients.includes(c.id) ? 'checked' : ''} class="w-3.5 h-3.5 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer outline-none flex-shrink-0"/>
@@ -2006,7 +2154,6 @@
                     </div>
                 </div>
 
-                <!-- IMEI Generator Section Mejora de Diseño -->
                 <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mt-2">
                     <h3 class="font-bold text-sm mb-5 flex items-center gap-2 text-purple-700">
                         <div class="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center"><i data-lucide="smartphone" class="w-4 h-4"></i></div>
@@ -2014,8 +2161,6 @@
                     </h3>
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-gray-100 pb-6 mb-6">
-                        
-                        <!-- Guardar TAC -->
                         <div class="flex flex-col gap-3 bg-purple-50/40 p-4 rounded-xl border border-purple-100/50">
                             <h4 class="text-[10px] font-black uppercase text-purple-600 tracking-wider flex items-center gap-1.5"><i data-lucide="database" class="w-3.5 h-3.5"></i> Guardar Base TAC</h4>
                             <form onsubmit="App.saveTAC(event)" class="flex flex-col gap-2">
@@ -2030,7 +2175,6 @@
                             </form>
                         </div>
                         
-                        <!-- Generar IMEIs -->
                         <div class="flex flex-col gap-3 bg-purple-50/40 p-4 rounded-xl border border-purple-100/50">
                             <h4 class="text-[10px] font-black uppercase text-purple-600 tracking-wider flex items-center gap-1.5"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> Generar IMEIs Aleatorios</h4>
                             <form onsubmit="App.generateIMEIs(event)" class="flex flex-col gap-2">
@@ -2301,31 +2445,138 @@
         }
 
         function renderTelegram() {
-            return `
-            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center shadow-sm"><i data-lucide="send" class="w-5 h-5"></i></div>
-                    <div><h2 class="text-xl font-bold text-gray-900">Mensajes de Telegram</h2><p class="text-xs text-gray-500 font-medium">Envía texto, links y archivos al canal</p></div>
+            const m = state.currentTelegramMethod;
+            const isReady = m.model.trim() !== '' && m.android.trim() !== '' && m.build.trim() !== '' && m.tool.trim() !== '';
+
+            let content = '';
+
+            if (state.showTelegramLibrary) {
+                const filtered = state.telegramLibrary.filter(item => 
+                    item.model.toLowerCase().includes(state.telegramLibrarySearch.toLowerCase()) ||
+                    item.tool.toLowerCase().includes(state.telegramLibrarySearch.toLowerCase())
+                );
+
+                content = `
+                <div class="flex flex-col gap-4 h-full">
+                    <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+                        <h3 class="font-black text-gray-800 text-xs uppercase tracking-wide flex items-center gap-1.5"><i data-lucide="book-open" class="w-4 h-4 text-blue-500"></i> Biblioteca de Métodos</h3>
+                        <button onclick="App.toggleTelegramLibrary()" class="text-[10px] font-bold text-gray-500 hover:text-gray-800 bg-gray-100 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"><i data-lucide="arrow-left" class="w-3 h-3"></i> Volver</button>
+                    </div>
+                    <div class="relative">
+                        <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                        <input id="tg-search" type="text" placeholder="Buscar por modelo o herramienta..." value="${state.telegramLibrarySearch}" oninput="App.setTelegramLibrarySearch(this.value)" class="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium outline-none focus:border-blue-400 transition-colors"/>
+                    </div>
+                    <div class="flex-1 overflow-auto custom-scrollbar flex flex-col gap-2">
+                        ${filtered.length === 0 ? `<div class="text-center flex flex-col items-center justify-center h-full text-gray-400 text-xs py-10"><i data-lucide="search-x" class="w-8 h-8 mb-2 opacity-50"></i>No hay métodos guardados que coincidan.</div>` : 
+                          filtered.map(item => `
+                            <div class="bg-white border border-gray-100 p-4 rounded-xl hover:border-blue-200 transition-colors shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4 group">
+                                <div>
+                                    <div class="flex items-center gap-2 mb-1.5">
+                                        <h4 class="text-sm font-black text-gray-900">${item.model}</h4>
+                                        <span class="text-[8px] text-gray-400 font-bold bg-gray-50 px-1.5 py-0.5 rounded">${item.date}</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-1.5 text-[9px] text-gray-500 font-bold uppercase tracking-wide">
+                                        <span class="bg-gray-100 px-2 py-1 rounded">Android: <span class="text-gray-800">${item.android}</span></span>
+                                        <span class="bg-gray-100 px-2 py-1 rounded">Tool: <span class="text-gray-800">${item.tool}</span></span>
+                                        ${item.hasLink ? `<span class="bg-blue-50 text-blue-600 px-2 py-1 rounded flex items-center gap-1 border border-blue-100"><i data-lucide="link" class="w-2.5 h-2.5"></i> Link Adjunto</span>` : ''}
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 w-full sm:w-auto">
+                                    <button onclick="App.openTelegramViewModal(${item.id})" class="flex-1 sm:flex-none bg-gray-100 text-gray-600 text-[10px] font-bold px-3 py-2 rounded-lg hover:bg-gray-200 flex items-center justify-center gap-1.5 transition-colors border border-gray-200"><i data-lucide="eye" class="w-3.5 h-3.5"></i> Ver</button>
+                                    <button onclick="App.loadMethodFromLibrary(${item.id})" class="flex-1 sm:flex-none bg-blue-50 text-blue-600 text-[10px] font-bold px-3 py-2 rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1.5 transition-colors border border-blue-100"><i data-lucide="upload" class="w-3.5 h-3.5"></i> Cargar</button>
+                                    <button onclick="App.deleteMethodFromLibrary(${item.id})" class="bg-gray-50 text-gray-400 p-2 rounded-lg hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-colors border border-gray-100 sm:border-transparent"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                </div>
+                            </div>
+                          `).join('')}
+                    </div>
                 </div>
-                
-                <div class="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 max-w-3xl flex-1 flex flex-col h-full">
-                    <h3 class="font-black text-gray-800 text-xs mb-4 uppercase tracking-wide border-b border-gray-100 pb-2"><i data-lucide="message-circle" class="w-3.5 h-3.5 inline mr-1 text-blue-500"></i> Redactar Mensaje</h3>
-                    <form onsubmit="App.sendCustomTelegram(event)" class="flex flex-col gap-5 flex-1">
-                        <div class="flex-1 flex flex-col relative group">
-                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 flex justify-between items-center w-full">
-                                <span>Cuerpo del Mensaje (Soporta Markdown y Links)</span>
-                                <span class="hidden sm:inline-block text-[9px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">Ctrl + D pegar texto | Ctrl + V archivos</span>
+                `;
+            } else {
+                content = `
+                <div class="flex flex-col h-full">
+                    <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4 flex-wrap gap-2">
+                        <h3 class="font-black text-gray-800 text-xs uppercase tracking-wide flex items-center gap-1.5 w-full sm:w-auto"><i data-lucide="message-circle" class="w-4 h-4 text-blue-500"></i> Redactar Mensaje y Método</h3>
+                        <div class="flex gap-2 w-full sm:w-auto">
+                            <button id="btn-save-method" onclick="App.saveMethodToLibrary()" class="flex-1 sm:flex-none text-[10px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-2 sm:py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 ${!isReady ? 'opacity-50 cursor-not-allowed' : ''}" ${!isReady ? 'disabled' : ''}><i data-lucide="save" class="w-3.5 h-3.5"></i> Guardar Método</button>
+                            <button onclick="App.toggleTelegramLibrary()" class="flex-1 sm:flex-none text-[10px] font-bold text-white bg-gray-900 hover:bg-gray-800 px-3 py-2 sm:py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"><i data-lucide="library" class="w-3.5 h-3.5"></i> Biblioteca</button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                        <div>
+                            <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Modelo *</label>
+                            <input id="tg-model" type="text" value="${m.model}" oninput="App.updateCurrentMethod('model', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: SM-G998B"/>
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Codename</label>
+                            <input id="tg-codename" type="text" value="${m.codename || ''}" oninput="App.updateCurrentMethod('codename', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: garnet"/>
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Versión Android *</label>
+                            <input id="tg-android" type="text" value="${m.android}" oninput="App.updateCurrentMethod('android', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: 13"/>
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Compilación *</label>
+                            <input id="tg-build" type="text" value="${m.build}" oninput="App.updateCurrentMethod('build', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: U1, U2, BIT..."/>
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-bold text-gray-400 uppercase mb-1 block">Herramienta *</label>
+                            <input id="tg-tool" type="text" value="${m.tool}" oninput="App.updateCurrentMethod('tool', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs outline-none focus:border-blue-400 font-bold text-gray-800 shadow-sm" placeholder="Ej: UnlockTool"/>
+                        </div>
+                        <div class="col-span-1 sm:col-span-2 lg:col-span-5 flex flex-col gap-3 bg-white p-3 rounded-lg border border-gray-200 shadow-sm mt-1">
+                            <label class="flex items-center gap-2 cursor-pointer flex-shrink-0 w-max">
+                                <input id="tg-haslink" type="checkbox" ${m.hasLink ? 'checked' : ''} onchange="App.updateCurrentMethod('hasLink', this.checked)" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"/>
+                                <span class="text-[10px] font-bold text-gray-700 uppercase">Añadir Links de Descarga</span>
                             </label>
-                            <textarea name="message" required onpaste="App.handleTelegramPaste(event)" onkeydown="App.handleTelegramKeyDown(event)" class="w-full flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-400 resize-none font-medium text-gray-700 custom-scrollbar min-h-[150px]" placeholder="Escribe aquí tu texto largo o links... (Usa Ctrl+V para pegar archivos directamente)"></textarea>
+                            ${m.hasLink ? `
+                                <div class="flex flex-col gap-2 pl-2 sm:pl-6 sm:border-l-2 sm:border-blue-100 sm:ml-2 mt-2 sm:mt-0 w-full">
+                                    ${(m.links || [{url: '', description: ''}]).map((l, i) => `
+                                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full">
+                                            <i data-lucide="link" class="w-3.5 h-3.5 text-gray-400 hidden sm:block flex-shrink-0"></i>
+                                            <input id="tg-link-desc-${i}" type="text" value="${l.description || ''}" oninput="App.updateMethodLink(${i}, 'description', this.value)" class="w-full sm:w-1/3 bg-gray-50 border border-gray-200 rounded-md p-2 text-xs outline-none focus:border-blue-400 font-medium text-gray-700" placeholder="Desc. (Ej: Mega, Fix)"/>
+                                            <div class="flex gap-2 w-full sm:w-2/3">
+                                                <input id="tg-link-url-${i}" type="text" value="${l.url || ''}" oninput="App.updateMethodLink(${i}, 'url', this.value)" class="w-full bg-gray-50 border border-gray-200 rounded-md p-2 text-xs outline-none focus:border-blue-400 font-medium text-gray-700" placeholder="Pegar URL aquí..."/>
+                                                <button type="button" onclick="App.removeMethodLink(${i})" class="p-2 text-gray-400 hover:text-red-500 transition-colors bg-gray-50 border border-gray-200 rounded-md flex-shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                    <button type="button" onclick="App.addMethodLink()" class="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md w-max flex items-center gap-1 transition-colors mt-1"><i data-lucide="plus" class="w-3 h-3"></i> Añadir otro link</button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    ${!isReady ? `<div class="bg-blue-50 border border-blue-100 text-blue-700 p-3 rounded-xl text-xs font-bold flex items-center gap-2 mb-4 shadow-sm animate-pulse"><i data-lucide="info" class="w-4 h-4 flex-shrink-0"></i> Completa los datos obligatorios (*) arriba para habilitar la escritura del mensaje.</div>` : ''}
+
+                    <form onsubmit="App.sendCustomTelegram(event)" class="flex flex-col gap-4 flex-1 relative transition-opacity duration-300 ${!isReady ? 'opacity-40 pointer-events-none grayscale-[50%]' : ''}">
+                        <div class="flex-1 flex flex-col relative group">
+                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 flex flex-col sm:flex-row justify-between sm:items-center w-full gap-1">
+                                <span>Cuerpo del Mensaje (Soporta Markdown y Links)</span>
+                                <span class="text-[9px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200 flex-shrink-0">Ctrl + D pegar texto | Ctrl + V archivos</span>
+                            </label>
+                            <textarea id="telegram-main-msg" name="message" required onpaste="App.handleTelegramPaste(event)" onkeydown="App.handleTelegramKeyDown(event)" oninput="App.updateCurrentMethod('messageText', this.value)" class="w-full flex-1 bg-white border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-blue-400 resize-none font-medium text-gray-700 custom-scrollbar min-h-[150px] shadow-sm" placeholder="Escribe aquí tu texto largo o detalles adicionales... (La info de arriba se añadirá automáticamente al inicio del mensaje)">${m.messageText || ''}</textarea>
                         </div>
                         <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-100 transition-colors hover:bg-blue-50">
-                            <label id="telegram-file-label" class="text-[10px] font-bold text-blue-500 uppercase mb-2 block flex items-center gap-1"><i data-lucide="paperclip" class="w-3 h-3"></i> Adjuntar Archivo (Opcional)</label>
+                            <label id="telegram-file-label" class="text-[10px] font-bold text-blue-500 uppercase mb-2 block flex items-center gap-1"><i data-lucide="paperclip" class="w-3 h-3"></i> Adjuntar Archivo o Imagen (Opcional)</label>
                             <input type="file" id="telegram-file-input" name="telegramFile" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer"/>
                         </div>
                         <button type="submit" id="btn-send-tg" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm text-xs flex items-center justify-center gap-2 mt-auto">
-                            <i data-lucide="send" class="w-4 h-4"></i> Enviar a Telegram
+                            <i data-lucide="send" class="w-4 h-4"></i> Publicar en Canal de Telegram
                         </button>
                     </form>
+                </div>
+                `;
+            }
+
+            return `
+            <div class="flex flex-col gap-4 h-full px-2 sm:px-0">
+                <div class="flex items-center gap-3 flex-shrink-0">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center shadow-sm"><i data-lucide="send" class="w-5 h-5"></i></div>
+                    <div><h2 class="text-xl font-bold text-gray-900">Mensajes de Telegram</h2><p class="text-xs text-gray-500 font-medium">Gestión de métodos y envíos al canal</p></div>
+                </div>
+                
+                <div class="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-100 max-w-3xl flex-1 flex flex-col min-h-[550px]">
+                    ${content}
                 </div>
             </div>`;
         }
@@ -2516,6 +2767,113 @@
             </div>`;
         }
 
+        function renderClientDebtModal() {
+            if (!state.clientDebtModal.show || !state.clientDebtModal.clientId) return '';
+            const clientId = state.clientDebtModal.clientId;
+            const client = state.clients.find(c => c.id === clientId);
+            if (!client) return '';
+
+            let pendingRows = [];
+            Object.keys(state.paymentSheets).forEach(date => {
+                state.paymentSheets[date].forEach(row => {
+                    if (parseInt(row.targetId) === clientId && row.pagado === 'no') {
+                        pendingRows.push({ date, ...row });
+                    }
+                });
+            });
+
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh]">
+                    <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+                        <h3 class="text-sm font-black text-gray-900 uppercase">Detalles de Deuda: ${client.name}</h3>
+                        <button onclick="App.closeClientDebtModal()" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <div class="p-4 overflow-y-auto custom-scrollbar flex-1">
+                        ${pendingRows.length === 0 ? '<p class="text-sm text-gray-500 text-center font-medium py-6">No hay deudas pendientes registradas.</p>' : `
+                            <div class="flex flex-col gap-2">
+                                ${pendingRows.map(r => `
+                                    <div class="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
+                                        <div class="flex flex-col">
+                                            <span class="text-xs font-bold text-gray-900">${r.trabajo || 'Servicio General'} <span class="text-gray-400 font-medium">(x${r.cant})</span></span>
+                                            <span class="text-[10px] text-gray-500 font-medium flex items-center gap-1 mt-0.5"><i data-lucide="calendar" class="w-3 h-3"></i> ${r.date}</span>
+                                        </div>
+                                        <div class="text-right flex flex-col items-end">
+                                            <span class="text-sm font-black text-red-600">$${App.formatCurrency(r.precio, r.metodo)} <span class="text-[9px] text-red-400">${r.metodo ? r.metodo.toUpperCase() : 'COP'}</span></span>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                    <div class="p-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl flex justify-between items-center">
+                        <span class="text-xs font-bold text-gray-500 uppercase">Deuda Total Calculada</span>
+                        <span class="text-lg font-black text-red-600">$${App.formatCurrency(client.debt, client.currency)} <span class="text-sm">${client.currency.toUpperCase()}</span></span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderNextDayModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl text-center">
+                    <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="check" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-base font-black text-gray-900 mb-2">¡Guardado Exitoso!</h3>
+                    <p class="text-xs text-gray-500 mb-6 font-medium">Los datos han sido respaldados y los cálculos actualizados. ¿Qué deseas hacer ahora?</p>
+                    <div class="flex gap-2">
+                        <button onclick="state.showNextDayModal = false; render();" class="flex-1 py-2.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">Cerrar</button>
+                        <button onclick="state.showNextDayModal = false; App.changeDate(1);" class="flex-[1.5] py-2.5 bg-green-600 text-white hover:bg-green-700 rounded-lg text-xs font-bold transition-colors shadow-sm">Siguiente Día</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderResetModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl text-center">
+                    <div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-base font-black text-gray-900 mb-2 uppercase">¿Borrar todos los datos?</h3>
+                    <p class="text-[10px] text-gray-500 mb-6 font-medium">Esta acción es permanente. Eliminará todos los clientes, deudas, ventas y configuraciones de este navegador.</p>
+                    <div class="flex gap-2">
+                        <button onclick="App.closeResetModal()" class="flex-1 py-2.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">Cancelar</button>
+                        <button onclick="App.confirmReset()" class="flex-1 py-2.5 bg-red-600 text-white hover:bg-red-700 rounded-lg text-xs font-bold transition-colors shadow-sm">Sí, borrar todo</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderRechargeModal() {
+            return `
+            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <form onsubmit="App.applyRecharge(event)" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                    <h3 class="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight flex items-center gap-2"><i data-lucide="plus-circle" class="w-4 h-4 text-green-600"></i> Añadir Inversión</h3>
+                    <div class="flex flex-col gap-4">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Monto a añadir ($)</label>
+                            <input type="number" name="amount" required step="0.01" min="0.01" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs outline-none focus:border-green-400 font-bold text-gray-800" placeholder="0.00"/>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Origen de los fondos</label>
+                            <select name="source" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs outline-none focus:border-green-400 font-medium text-gray-700">
+                                <option value="external">Dinero Externo (Nuevo capital)</option>
+                                <option value="accumulated">Reinvertir ganancias acumuladas</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-6">
+                        <button type="button" onclick="App.closeRechargeModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold transition-colors hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" class="flex-1 py-3 bg-green-600 text-white rounded-lg text-xs font-bold transition-colors hover:bg-green-700 shadow-sm">Aplicar</button>
+                    </div>
+                </form>
+            </div>`;
+        }
+
         function renderWeeklyConfigModal() {
             const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
             const eDay = state.weeklyCycle?.endDay !== null ? state.weeklyCycle?.endDay : 0;
@@ -2581,125 +2939,58 @@
             </div>`;
         }
 
-        function renderClientDebtModal() {
-            if(!state.clientDebtModal.show || !state.clientDebtModal.clientId) return '';
-            const client = state.clients.find(c => c.id === state.clientDebtModal.clientId);
-            if(!client) return '';
+        function renderTelegramViewModal() {
+            if (!state.telegramViewModal.show || !state.telegramViewModal.methodId) return '';
+            const m = state.telegramLibrary.find(x => x.id === state.telegramViewModal.methodId);
+            if (!m) return '';
 
-            let debts = [];
-            Object.keys(state.paymentSheets).forEach(date => {
-                state.paymentSheets[date].forEach(row => {
-                    if (row.targetId == client.id && row.pagado === 'no' && parseFloat(row.precio) > 0) {
-                        debts.push({ date, ...row });
-                    }
-                });
-            });
-
-            // sort by date desc
-            debts.sort((a,b) => new Date(b.date) - new Date(a.date));
+            let linksHtml = '';
+            if (m.hasLink && m.links && m.links.length > 0) {
+                linksHtml = m.links.filter(l => l.url && l.url.trim() !== '').map((l, i) => {
+                    const desc = l.description && l.description.trim() !== '' ? l.description.trim() : `Enlace ${i + 1}`;
+                    return `
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 mb-2 bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                        <div class="flex items-center gap-2 min-w-[100px]">
+                            <i data-lucide="link" class="w-4 h-4 text-blue-500 flex-shrink-0"></i>
+                            <span class="text-xs font-bold text-gray-700 uppercase">${desc}:</span>
+                        </div>
+                        <a href="${l.url}" target="_blank" class="text-blue-600 text-sm hover:underline truncate w-full flex-1 break-all">${l.url}</a>
+                    </div>
+                    `;
+                }).join('');
+            }
 
             return `
             <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div class="bg-white rounded-2xl w-full max-w-2xl shadow-xl flex flex-col max-h-[85vh]">
-                    <div class="p-4 sm:p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
-                        <div>
-                            <h3 class="text-sm font-black text-gray-900 uppercase tracking-tight flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4 text-purple-600"></i> Detalle de Deudas</h3>
-                            <p class="text-[11px] text-gray-500 font-bold mt-0.5">Cliente: <span class="text-gray-800">${client.name}</span></p>
-                        </div>
-                        <button onclick="App.closeClientDebtModal()" class="w-8 h-8 flex items-center justify-center bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300 transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+                <div class="bg-white rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]">
+                    <div class="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
+                        <h3 class="text-base font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                            <i data-lucide="eye" class="w-5 h-5 text-blue-500"></i> Visualizar Método
+                        </h3>
+                        <button onclick="App.closeTelegramViewModal()" class="w-8 h-8 flex items-center justify-center bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
                     </div>
-                    <div class="flex-1 overflow-auto p-4 sm:p-5 custom-scrollbar">
-                        ${debts.length === 0 ? `
-                            <div class="text-center py-12">
-                                <i data-lucide="check-circle" class="w-12 h-12 text-green-400 mx-auto mb-3 opacity-50"></i>
-                                <p class="text-sm font-bold text-gray-500">Este cliente no tiene deudas pendientes registradas.</p>
+                    <div class="flex-1 overflow-auto p-4 sm:p-6 custom-scrollbar text-sm font-medium text-gray-700">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6 bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                            <div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Modelo</span> <span class="font-black text-gray-900 text-lg break-words">${m.model}</span></div>
+                            ${m.codename ? `<div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Codename</span> <span class="font-black text-gray-900 text-lg break-words">${m.codename}</span></div>` : ''}
+                            <div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Android</span> <span class="font-black text-gray-900 text-lg break-words">${m.android}</span></div>
+                            <div class="sm:col-span-2 lg:col-span-1"><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Compilación</span> <span class="font-black text-gray-900 text-lg break-all">${m.build}</span></div>
+                            <div><span class="text-xs font-bold text-gray-400 uppercase block mb-1">Herramienta</span> <span class="font-black text-gray-900 text-lg break-words">${m.tool}</span></div>
+                        </div>
+                        ${linksHtml ? `
+                            <div class="mb-6">
+                                <span class="text-xs font-bold text-gray-400 uppercase block mb-3 border-b border-gray-100 pb-2">Links Adjuntos</span>
+                                <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 gap-3 flex flex-col">
+                                    ${linksHtml}
+                                </div>
                             </div>
-                        ` : `
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left border-collapse min-w-[500px]">
-                                    <thead>
-                                        <tr>
-                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">Fecha de Registro</th>
-                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">Servicio / Trabajo Realizado</th>
-                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 text-center">Cant.</th>
-                                            <th class="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 text-right">Monto</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-50">
-                                        ${debts.map(d => `
-                                            <tr class="hover:bg-gray-50 transition-colors">
-                                                <td class="p-2 text-[11px] font-medium text-gray-600 whitespace-nowrap"><i data-lucide="calendar" class="w-3 h-3 inline mr-1 text-gray-400 mb-0.5"></i>${d.date}</td>
-                                                <td class="p-2 text-xs font-bold text-gray-800">${d.trabajo || 'Servicio General'}</td>
-                                                <td class="p-2 text-xs font-bold text-gray-600 text-center bg-gray-50/50 rounded-lg">x${d.cant}</td>
-                                                <td class="p-2 text-xs font-black text-red-500 text-right">$${App.formatCurrency(d.precio, d.metodo)} <span class="text-[9px] text-gray-400 font-bold ml-0.5">${(d.metodo||'cop').toUpperCase()}</span></td>
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        `}
-                    </div>
-                    <div class="p-4 sm:p-5 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-between items-center">
-                        <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">Deuda Total Acumulada</span>
-                        <span class="text-xl font-black text-red-600">$${App.formatCurrency(client.debt, client.currency)} <span class="text-xs text-gray-500 font-bold ml-0.5">${client.currency.toUpperCase()}</span></span>
-                    </div>
-                </div>
-            </div>`;
-        }
-
-        function renderNextDayModal() {
-            return `
-            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl flex flex-col items-center text-center">
-                    <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-3"><i data-lucide="check-circle" class="w-6 h-6"></i></div>
-                    <h3 class="text-sm font-bold text-gray-900 mb-2">¡Guardado!</h3>
-                    <p class="text-[10px] text-gray-500 mb-4">¿Pasar al día siguiente?</p>
-                    <div class="flex gap-2 w-full">
-                        <button onclick="state.showNextDayModal=false; render()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">No</button>
-                        <button onclick="App.changeDate(1); state.showNextDayModal=false" class="flex-1 py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold">Sí, Avanzar</button>
-                    </div>
-                </div>
-            </div>`;
-        }
-
-        function renderResetModal() {
-            return `
-            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl flex flex-col items-center text-center border border-red-100">
-                    <div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3"><i data-lucide="alert-triangle" class="w-6 h-6"></i></div>
-                    <h3 class="text-sm font-bold text-gray-900 mb-2">¿Reiniciar Datos?</h3>
-                    <p class="text-[10px] text-gray-500 mb-4">Esta acción eliminará todos los registros y devolverá la app a su estado de fábrica. No se puede deshacer.</p>
-                    <div class="flex gap-2 w-full">
-                        <button onclick="App.closeResetModal()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">Cancelar</button>
-                        <button onclick="App.confirmReset()" class="flex-1 py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold">Sí, Reiniciar</button>
-                    </div>
-                </div>
-            </div>`;
-        }
-
-        function renderRechargeModal() {
-            return `
-            <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <form onsubmit="App.applyRecharge(event)" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                    <h3 class="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight flex items-center gap-2"><i data-lucide="coins" class="w-4 h-4 text-red-600"></i> Aplicar Recarga</h3>
-                    <div class="flex flex-col gap-3">
+                        ` : ''}
                         <div>
-                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Monto a Recargar</label>
-                            <input type="number" name="amount" required min="0.01" step="0.01" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400 font-bold text-gray-900" placeholder="0.00"/>
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Origen de los fondos</label>
-                            <select name="source" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:border-red-400 font-medium text-gray-700">
-                                <option value="external">Recarga Externa (Nuevo Dinero)</option>
-                                <option value="accumulated">Del Capital Acumulado (Reinversión)</option>
-                            </select>
+                            <span class="text-xs font-bold text-gray-400 uppercase block mb-3 border-b border-gray-100 pb-2">Mensaje Principal</span>
+                            <div class="bg-gray-50 p-5 rounded-2xl border border-gray-100 whitespace-pre-wrap font-mono text-xs sm:text-sm text-gray-800 shadow-inner">${m.messageText || '<span class="text-gray-400 italic">Sin mensaje adicional</span>'}</div>
                         </div>
                     </div>
-                    <div class="flex gap-2 mt-6">
-                        <button type="button" onclick="App.closeRechargeModal()" class="flex-1 py-3 sm:py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
-                        <button type="submit" class="flex-[1.5] py-3 sm:py-2 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm">Aplicar Recarga</button>
-                    </div>
-                </form>
+                </div>
             </div>`;
         }
 
