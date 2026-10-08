@@ -107,7 +107,7 @@
                 ],
                 currentFilter: 'all',
                 searchQuery: '',
-                modal: { show: false, editingId: null, timingMode: 'available' },
+                modal: { show: false, editingId: null, timingMode: 'custom_remaining' },
                 deleteModal: { show: false, toolId: null },
                 quickEditModal: { show: false, toolId: null }
             },
@@ -238,12 +238,12 @@
                             tools: defaultState.toolRentState.tools,
                             currentFilter: 'all',
                             searchQuery: '',
-                            modal: { show: false, editingId: null, timingMode: 'available' },
+                            modal: { show: false, editingId: null, timingMode: 'custom_remaining' },
                             deleteModal: { show: false, toolId: null },
                             quickEditModal: { show: false, toolId: null }
                         };
                     } else {
-                        state.toolRentState.modal = { show: false, editingId: null, timingMode: 'available' };
+                        state.toolRentState.modal = { show: false, editingId: null, timingMode: 'custom_remaining' };
                         state.toolRentState.deleteModal = { show: false, toolId: null };
                         state.toolRentState.quickEditModal = { show: false, toolId: null };
                     }
@@ -476,20 +476,12 @@
         };
 
         App.openToolRentModal = (id = null) => {
-            let timingMode = 'available';
-            if (id) {
-                const tool = state.toolRentState.tools.find(t => t.id === id);
-                if (tool) {
-                    const rem = (tool.unlockTimestamp || 0) - Date.now();
-                    if (rem > 0) timingMode = 'custom_remaining';
-                }
-            }
-            state.toolRentState.modal = { show: true, editingId: id, timingMode };
+            state.toolRentState.modal = { show: true, editingId: id, timingMode: 'custom_remaining' };
             render();
         };
 
         App.closeToolRentModal = () => {
-            state.toolRentState.modal = { show: false, editingId: null, timingMode: 'available' };
+            state.toolRentState.modal = { show: false, editingId: null, timingMode: 'custom_remaining' };
             render();
         };
 
@@ -514,14 +506,14 @@
             const password = e.target.toolPassword.value.trim();
             const notes = e.target.toolNotes.value.trim();
             const defaultCycleHours = parseInt(e.target.defaultCycleHours.value, 10) || 48;
-            const mode = state.toolRentState.modal.timingMode;
             
             let unlockTs = Date.now();
-            if (mode === 'available') unlockTs -= 1000;
-            else if (mode === 'fresh_start') unlockTs += (defaultCycleHours * 3600 * 1000);
-            else if (mode === 'custom_remaining') {
-                const timeStr = e.target.remTimeString ? e.target.remTimeString.value.trim() : '';
-                unlockTs += App.parseTimeStringToMs(timeStr);
+            const timeStr = e.target.remTimeString ? e.target.remTimeString.value.trim() : '';
+            const addedMs = App.parseTimeStringToMs(timeStr);
+            if (addedMs === 0) {
+                unlockTs -= 1000; // Marcar disponible inmediatamente si está vacío
+            } else {
+                unlockTs += addedMs;
             }
 
             const toolData = { id, name, orderId, username, password, notes, defaultCycleHours, unlockTimestamp: unlockTs };
@@ -3041,7 +3033,7 @@
 
             return `
             <div class="fixed inset-0 z-[60] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto font-sans">
-                <div class="bg-white border border-gray-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative my-8">
+                <div class="bg-white border border-gray-200 rounded-3xl max-w-md w-full p-6 shadow-2xl relative my-8">
                     <div class="flex items-center justify-between pb-4 border-b border-gray-100">
                         <div class="flex items-center gap-2.5">
                             <div class="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center border border-red-100 font-bold text-sm">+</div>
@@ -3053,11 +3045,8 @@
                     <form onsubmit="App.saveToolRent(event)" class="mt-5 space-y-4">
                         <div>
                             <label class="block text-xs font-bold text-gray-700 mb-1.5">Software</label>
-                            <div class="grid grid-cols-2 gap-2 mb-2">
+                            <div class="grid grid-cols-1 gap-2 mb-2">
                                 <button type="button" onclick="App.applyToolRentPreset('DFT Pro', 48)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">DFT Pro</span><span class="text-[10px] text-gray-500">48h Bloqueo</span></button>
-                                <button type="button" onclick="App.applyToolRentPreset('UnlockTool', 6)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">UnlockTool</span><span class="text-[10px] text-gray-500">6h Bloqueo</span></button>
-                                <button type="button" onclick="App.applyToolRentPreset('Pandora Box', 24)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">Pandora</span><span class="text-[10px] text-gray-500">24h Bloqueo</span></button>
-                                <button type="button" onclick="App.applyToolRentPreset('Chimera Tool', 48)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">Chimera</span><span class="text-[10px] text-gray-500">48h Bloqueo</span></button>
                             </div>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <input type="text" id="tr-toolName" name="toolName" value="${tool ? tool.name : ''}" required placeholder="Ej: Z3X, Octoplus..." class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500">
@@ -3083,24 +3072,10 @@
 
                         <div class="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
                             <label class="block text-xs font-black text-gray-800 uppercase tracking-wide">Ajuste de Tiempo Actual</label>
-                            <div class="space-y-2 text-xs">
-                                <label class="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white border border-gray-200 hover:border-red-300 transition ${m.timingMode === 'available' ? 'border-red-500 bg-red-50' : ''}">
-                                    <input type="radio" name="timingMode" value="available" ${m.timingMode === 'available' ? 'checked' : ''} onchange="App.setToolRentTimingMode(this.value)" class="text-red-600 focus:ring-red-500">
-                                    <div><span class="font-bold text-gray-900 block">Disponible ahora</span><span class="text-gray-500 text-[11px]">Lista para abrir en otra PC.</span></div>
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white border border-gray-200 hover:border-red-300 transition ${m.timingMode === 'fresh_start' ? 'border-red-500 bg-red-50' : ''}">
-                                    <input type="radio" name="timingMode" value="fresh_start" ${m.timingMode === 'fresh_start' ? 'checked' : ''} onchange="App.setToolRentTimingMode(this.value)" class="text-red-600 focus:ring-red-500">
-                                    <div><span class="font-bold text-gray-900 block">Se abrió ahora (Iniciar bloqueo)</span><span class="text-gray-500 text-[11px]">Empieza a contar las horas totales.</span></div>
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white border border-gray-200 hover:border-red-300 transition ${m.timingMode === 'custom_remaining' ? 'border-red-500 bg-red-50' : ''}">
-                                    <input type="radio" name="timingMode" value="custom_remaining" ${m.timingMode === 'custom_remaining' ? 'checked' : ''} onchange="App.setToolRentTimingMode(this.value)" class="text-red-600 focus:ring-red-500">
-                                    <div><span class="font-bold text-gray-900 block">Pegar tiempo restante manual</span><span class="text-gray-500 text-[11px]">Ej: 24:43:21</span></div>
-                                </label>
-                            </div>
 
-                            <div class="pt-3 border-t border-gray-200 ${m.timingMode === 'custom_remaining' ? '' : 'hidden'}">
-                                <label class="block text-[11px] font-bold text-gray-600 mb-1">Tiempo restante (Pegar en formato HH:MM:SS o HH:MM)</label>
-                                <input type="text" name="remTimeString" value="${tool && m.timingMode === 'custom_remaining' ? App.formatMsToTimeString(Math.max(0, tool.unlockTimestamp - Date.now())) : ''}" placeholder="ej: 24:43:21" class="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono text-center tracking-widest">
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-600 mb-1">Tiempo restante (Pegar en formato HH:MM:SS, o dejar vacío si está libre)</label>
+                                <input type="text" name="remTimeString" value="${tool ? App.formatMsToTimeString(Math.max(0, tool.unlockTimestamp - Date.now())) : ''}" placeholder="ej: 24:43:21" class="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono text-center tracking-widest">
                             </div>
 
                             <div class="pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
