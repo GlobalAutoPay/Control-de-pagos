@@ -476,13 +476,20 @@
         };
 
         App.openToolRentModal = (id = null) => {
-            let timingMode = 'custom_remaining'; // Default to custom remaining since others are removed
+            let timingMode = 'available';
+            if (id) {
+                const tool = state.toolRentState.tools.find(t => t.id === id);
+                if (tool) {
+                    const rem = (tool.unlockTimestamp || 0) - Date.now();
+                    if (rem > 0) timingMode = 'custom_remaining';
+                }
+            }
             state.toolRentState.modal = { show: true, editingId: id, timingMode };
             render();
         };
 
         App.closeToolRentModal = () => {
-            state.toolRentState.modal = { show: false, editingId: null, timingMode: 'custom_remaining' };
+            state.toolRentState.modal = { show: false, editingId: null, timingMode: 'available' };
             render();
         };
 
@@ -507,14 +514,14 @@
             const password = e.target.toolPassword.value.trim();
             const notes = e.target.toolNotes.value.trim();
             const defaultCycleHours = parseInt(e.target.defaultCycleHours.value, 10) || 48;
+            const mode = state.toolRentState.modal.timingMode;
             
             let unlockTs = Date.now();
-            const timeStr = e.target.remTimeString ? e.target.remTimeString.value.trim() : '';
-            if (timeStr) {
+            if (mode === 'available') unlockTs -= 1000;
+            else if (mode === 'fresh_start') unlockTs += (defaultCycleHours * 3600 * 1000);
+            else if (mode === 'custom_remaining') {
+                const timeStr = e.target.remTimeString ? e.target.remTimeString.value.trim() : '';
                 unlockTs += App.parseTimeStringToMs(timeStr);
-            } else {
-                // If no time is provided, assume it's available immediately
-                 unlockTs -= 1000;
             }
 
             const toolData = { id, name, orderId, username, password, notes, defaultCycleHours, unlockTimestamp: unlockTs };
@@ -2918,7 +2925,7 @@
                     <div class="bg-white shadow-sm border border-gray-200 p-3 rounded-2xl flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
                         <div class="relative flex-1">
                             <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                            <input type="text" id="tr-searchInput" placeholder="Buscar por nombre, usuario o nota..." value="${searchQuery}" oninput="App.setToolRentSearch(this.value)" class="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-colors">
+                            <input type="text" placeholder="Buscar por nombre, usuario o nota..." value="${searchQuery}" oninput="App.setToolRentSearch(this.value)" class="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-colors">
                         </div>
 
                         <div class="flex items-center gap-1.5 bg-gray-50 p-1 rounded-xl border border-gray-200 text-xs overflow-x-auto custom-scrollbar">
@@ -2935,72 +2942,78 @@
                                 const isReady = remainingMs <= 0;
                                 const timeObj = App.formatTimeRemaining(remainingMs);
                                 const exactRelease = App.formatExactDateTime(tool.unlockTimestamp);
-                                const cardClass = isReady ? 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md' : 'border-red-200 bg-gradient-to-b from-white to-red-50/30 hover:border-red-300 hover:shadow-md';
-                                const badgeClass = isReady ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-100 text-red-700 border border-red-200 animate-pulse';
-                                const statusLabel = isReady ? '✓ DISPONIBLE' : '⏳ EN USO';
-                                const timerBg = isReady ? 'bg-gray-50 border-gray-100 text-gray-400' : 'bg-white border-red-100 shadow-inner text-red-600';
-                                const timerText = isReady ? 'text-gray-400' : 'text-red-600 font-black tracking-tight';
+                                const cardClass = isReady ? 'border-gray-300 bg-white shadow-sm' : 'border-red-200 bg-white pulse-glow-red';
+                                const badgeClass = isReady ? 'bg-gray-100 text-gray-700 border border-gray-200' : 'bg-red-50 text-red-600 border border-red-200';
+                                const statusLabel = isReady ? '✓ LIBRE PARA OTRA PC' : 'EN ESPERA (BLOQUEADA)';
+                                const timerBg = isReady ? 'bg-gray-50 border-gray-200' : 'bg-red-50/50 border-red-100';
+                                const timerText = isReady ? 'text-gray-800' : 'text-red-600';
 
                                 return `
-                                <div class="rounded-3xl border ${cardClass} p-5 flex flex-col justify-between transition-all duration-300 relative overflow-hidden group shadow-sm">
-                                    ${!isReady ? `<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-400 to-red-600"></div>` : `<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-400 to-emerald-500"></div>`}
+                                <div class="rounded-3xl border ${cardClass} p-5 flex flex-col justify-between transition-all relative overflow-hidden group">
                                     <div>
-                                        <div class="flex flex-col xl:flex-row items-start justify-between gap-3 mb-4">
-                                            <div class="flex-1 w-full">
-                                                <div class="flex items-center justify-between xl:justify-start gap-2 flex-wrap mb-1">
-                                                    <h3 class="font-black text-gray-900 text-lg tracking-tight">${tool.name}</h3>
-                                                    <span class="text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-wider ${badgeClass} whitespace-nowrap shadow-sm">
-                                                        ${statusLabel}
-                                                    </span>
+                                        <div class="flex flex-col sm:flex-row items-start justify-between gap-3 mb-3">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-2 flex-wrap">
+                                                    <h3 class="font-black text-gray-900 text-base">${tool.name}</h3>
+                                                    ${tool.orderId ? `<span class="text-[10px] font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md border border-gray-200 shadow-sm">${tool.orderId}</span>` : ''}
                                                 </div>
-                                                ${tool.orderId ? `<span class="inline-block text-[10px] font-mono bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200 mb-1">${tool.orderId}</span>` : ''}
-                                                ${tool.notes ? `<p class="text-[11px] font-medium text-gray-500 mt-1 line-clamp-2 bg-gray-50 p-1.5 rounded-lg border border-gray-100">📌 ${tool.notes}</p>` : ''}
+                                                ${tool.notes ? `<p class="text-[11px] font-medium text-gray-500 mt-1 line-clamp-1">📌 ${tool.notes}</p>` : ''}
                                             </div>
+                                            <span class="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-widest ${badgeClass} whitespace-nowrap shadow-sm">
+                                                ${statusLabel}
+                                            </span>
                                         </div>
 
-                                        <div class="p-4 rounded-2xl border ${timerBg} my-4 flex flex-col items-center justify-center relative overflow-hidden group-hover:scale-[1.02] transition-transform duration-300">
-                                            <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">${isReady ? 'Tiempo Restante' : 'Desbloqueo en'}</span>
-                                            <div class="flex items-center gap-2">
-                                                <span class="font-mono ${timerText} text-3xl tool-timer-display drop-shadow-sm" data-ts="${tool.unlockTimestamp}" data-ready="${isReady}">
+                                        <div class="p-3.5 rounded-2xl border ${timerBg} my-4">
+                                            <div class="flex items-center justify-between text-xs mb-2">
+                                                <div class="flex items-center gap-1.5">
+                                                    <span class="text-gray-600 font-bold">Tiempo de espera:</span>
+                                                    ${!isReady ? `<button onclick="App.openQuickEditTime('${tool.id}')" class="text-gray-400 hover:text-red-600 bg-white border border-gray-200 shadow-sm rounded p-0.5 transition" title="Corregir tiempo"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg></button>` : ''}
+                                                </div>
+                                                <span class="font-mono font-black ${timerText} text-[15px] tool-timer-display" data-ts="${tool.unlockTimestamp}" data-ready="${isReady}">
                                                     ${isReady ? '00:00:00' : timeObj.text}
                                                 </span>
-                                                ${!isReady ? `<button onclick="App.openQuickEditTime('${tool.id}')" class="text-gray-300 hover:text-red-600 transition-colors ml-1" title="Corregir tiempo"><i data-lucide="edit-3" class="w-4 h-4"></i></button>` : ''}
                                             </div>
-                                            <div class="mt-2 text-center w-full">
-                                                <p class="text-[9px] font-bold text-gray-400 uppercase tracking-wide border-t border-gray-200/50 pt-1.5 mt-1">${isReady ? 'Liberada desde' : 'Fecha exacta de liberación'}</p>
-                                                <p class="text-[11px] font-medium ${isReady ? 'text-gray-500' : 'text-gray-700'} capitalize truncate">${exactRelease}</p>
+                                            <div class="pt-2 border-t ${isReady ? 'border-gray-200' : 'border-red-100'}">
+                                                <p class="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">${isReady ? 'Liberada desde:' : 'Fecha exacta de liberación:'}</p>
+                                                <p class="text-[13px] font-black ${isReady ? 'text-gray-700' : 'text-red-700'} capitalize">${exactRelease}</p>
                                             </div>
                                         </div>
 
-                                        <div class="space-y-2 text-xs bg-white p-3 rounded-xl border border-gray-100 shadow-sm mt-4 relative">
-                                            <button onclick="App.copyAllCreds('${tool.username}', '${tool.password}')" class="absolute top-2 right-2 text-gray-300 hover:text-blue-500 bg-gray-50 hover:bg-blue-50 p-1.5 rounded-lg transition-colors" title="Copiar usuario y contraseña"><i data-lucide="copy" class="w-4 h-4"></i></button>
-                                            
-                                            <div class="flex flex-col pr-8">
-                                                <span class="text-gray-400 font-bold uppercase text-[9px] tracking-wider mb-0.5">Usuario</span>
-                                                <span class="font-mono text-gray-800 font-bold select-all bg-gray-50 px-2 py-1 rounded border border-gray-100 truncate">${tool.username}</span>
+                                        <div class="space-y-2.5 text-xs bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-400 font-bold uppercase text-[10px] tracking-wider">Usuario</span>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="font-mono text-gray-900 font-bold select-all">${tool.username}</span>
+                                                    <button onclick="App.copyTextToClipboard('${tool.username}', 'Usuario')" class="text-gray-400 hover:text-gray-800 p-1 bg-white border border-gray-200 shadow-sm rounded-md transition"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button>
+                                                </div>
                                             </div>
-                                            <div class="flex flex-col pr-8 pt-1">
-                                                <span class="text-gray-400 font-bold uppercase text-[9px] tracking-wider mb-0.5">Contraseña</span>
-                                                <span class="font-mono text-gray-800 font-bold select-all bg-gray-50 px-2 py-1 rounded border border-gray-100 truncate">${tool.password}</span>
+                                            <div class="flex items-center justify-between pt-2 border-t border-gray-200/60">
+                                                <span class="text-gray-400 font-bold uppercase text-[10px] tracking-wider">Pass</span>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="font-mono text-gray-900 font-bold select-all">${tool.password}</span>
+                                                    <button onclick="App.copyTextToClipboard('${tool.password}', 'Contraseña')" class="text-gray-400 hover:text-gray-800 p-1 bg-white border border-gray-200 shadow-sm rounded-md transition"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div class="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3">
+                                    <div class="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-2.5">
                                         <div class="grid grid-cols-2 gap-2">
-                                            <button onclick="App.triggerNewSession('${tool.id}')" class="w-full bg-gray-900 hover:bg-gray-800 active:scale-95 text-white text-[11px] font-bold py-2.5 px-2 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm">
-                                                <i data-lucide="play" class="w-3.5 h-3.5"></i>
-                                                <span>Bloquear (${tool.defaultCycleHours || 48}h)</span>
+                                            <button onclick="App.triggerNewSession('${tool.id}')" class="w-full bg-gray-900 hover:bg-gray-800 active:scale-95 text-white text-[11px] font-bold py-2.5 px-2 rounded-xl transition flex items-center justify-center gap-1.5 shadow-md">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                                <span>Abrir en PC (${tool.defaultCycleHours || 48}h)</span>
                                             </button>
-                                            <button onclick="App.markAsAvailable('${tool.id}')" class="w-full ${isReady ? 'opacity-50 cursor-not-allowed bg-gray-50 text-gray-400 border border-gray-200' : 'bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 shadow-sm'} text-[11px] font-bold py-2.5 px-2 rounded-xl transition-colors flex items-center justify-center gap-1.5" ${isReady ? 'disabled' : ''}>
-                                                <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
-                                                <span>Liberar</span>
+                                            <button onclick="App.markAsAvailable('${tool.id}')" class="w-full ${isReady ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border border-gray-200' : 'bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 shadow-sm'} text-[11px] font-bold py-2.5 px-2 rounded-xl transition flex items-center justify-center gap-1.5" ${isReady ? 'disabled' : ''}>
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                <span>Liberar Ahora</span>
                                             </button>
                                         </div>
-                                        <div class="flex items-center justify-end text-xs pt-1 border-t border-gray-50 mt-1">
+                                        <div class="flex items-center justify-between text-xs pt-1">
+                                            <button onclick="App.copyAllCreds('${tool.username}', '${tool.password}')" class="text-gray-500 hover:text-gray-900 font-bold transition flex items-center gap-1 text-[11px]">Copiar todo</button>
                                             <div class="flex items-center gap-1">
-                                                <button onclick="App.openToolRentModal('${tool.id}')" class="text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-bold uppercase"><i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar</button>
-                                                <button onclick="App.promptDeleteToolRent('${tool.id}')" class="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-bold uppercase"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Eliminar</button>
+                                                <button onclick="App.openToolRentModal('${tool.id}')" class="text-gray-400 hover:text-gray-800 p-1.5 hover:bg-gray-100 rounded-lg transition" title="Editar"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
+                                                <button onclick="App.promptDeleteToolRent('${tool.id}')" class="text-gray-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition" title="Eliminar"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
                                             </div>
                                         </div>
                                     </div>
@@ -3070,18 +3083,27 @@
 
                         <div class="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
                             <label class="block text-xs font-black text-gray-800 uppercase tracking-wide">Ajuste de Tiempo Actual</label>
-                            <div class="space-y-2 text-xs hidden">
-                                <!-- Opciones ocultas para mantener compatibilidad si es necesario, pero forzamos custom_remaining -->
-                                <input type="radio" name="timingMode" value="custom_remaining" checked class="hidden">
+                            <div class="space-y-2 text-xs">
+                                <label class="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white border border-gray-200 hover:border-red-300 transition ${m.timingMode === 'available' ? 'border-red-500 bg-red-50' : ''}">
+                                    <input type="radio" name="timingMode" value="available" ${m.timingMode === 'available' ? 'checked' : ''} onchange="App.setToolRentTimingMode(this.value)" class="text-red-600 focus:ring-red-500">
+                                    <div><span class="font-bold text-gray-900 block">Disponible ahora</span><span class="text-gray-500 text-[11px]">Lista para abrir en otra PC.</span></div>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white border border-gray-200 hover:border-red-300 transition ${m.timingMode === 'fresh_start' ? 'border-red-500 bg-red-50' : ''}">
+                                    <input type="radio" name="timingMode" value="fresh_start" ${m.timingMode === 'fresh_start' ? 'checked' : ''} onchange="App.setToolRentTimingMode(this.value)" class="text-red-600 focus:ring-red-500">
+                                    <div><span class="font-bold text-gray-900 block">Se abrió ahora (Iniciar bloqueo)</span><span class="text-gray-500 text-[11px]">Empieza a contar las horas totales.</span></div>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white border border-gray-200 hover:border-red-300 transition ${m.timingMode === 'custom_remaining' ? 'border-red-500 bg-red-50' : ''}">
+                                    <input type="radio" name="timingMode" value="custom_remaining" ${m.timingMode === 'custom_remaining' ? 'checked' : ''} onchange="App.setToolRentTimingMode(this.value)" class="text-red-600 focus:ring-red-500">
+                                    <div><span class="font-bold text-gray-900 block">Pegar tiempo restante manual</span><span class="text-gray-500 text-[11px]">Ej: 24:43:21</span></div>
+                                </label>
                             </div>
 
-                            <div class="pt-1">
+                            <div class="pt-3 border-t border-gray-200 ${m.timingMode === 'custom_remaining' ? '' : 'hidden'}">
                                 <label class="block text-[11px] font-bold text-gray-600 mb-1">Tiempo restante (Pegar en formato HH:MM:SS o HH:MM)</label>
-                                <input type="text" name="remTimeString" id="tr-remTimeString" value="${tool ? App.formatMsToTimeString(Math.max(0, tool.unlockTimestamp - Date.now())) : ''}" placeholder="ej: 24:43:21 (Dejar vacío si está disponible)" class="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono text-center tracking-widest shadow-inner">
-                                <p class="text-[9px] text-gray-400 text-center mt-1">Si dejas este campo vacío, la herramienta se marcará como disponible inmediatamente.</p>
+                                <input type="text" name="remTimeString" value="${tool && m.timingMode === 'custom_remaining' ? App.formatMsToTimeString(Math.max(0, tool.unlockTimestamp - Date.now())) : ''}" placeholder="ej: 24:43:21" class="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono text-center tracking-widest">
                             </div>
 
-                            <div class="pt-3 border-t border-gray-200 flex items-center justify-between text-xs mt-3">
+                            <div class="pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
                                 <span class="text-gray-600 font-bold">Ciclo Total (Regla):</span>
                                 <div class="flex items-center gap-1.5">
                                     <input type="number" id="tr-defaultCycleHours" name="defaultCycleHours" value="${tool ? (tool.defaultCycleHours || 48) : 48}" min="1" max="168" class="w-16 bg-white border border-gray-300 rounded-lg px-2 py-1 text-center font-mono text-gray-900 text-xs font-bold focus:border-red-500 focus:outline-none">
