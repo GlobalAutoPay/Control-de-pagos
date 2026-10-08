@@ -33,6 +33,10 @@
             height: 100vh;
             height: 100dvh;
         }
+
+        .pulse-glow-red {
+            box-shadow: 0 0 20px -5px rgba(220, 38, 38, 0.2);
+        }
     </style>
 </head>
 <body class="h-screen-mobile overflow-hidden flex flex-col lg:flex-row p-0 sm:p-4 md:p-6 gap-0 sm:gap-4 text-gray-800 selection:bg-red-100 selection:text-red-900">
@@ -40,6 +44,9 @@
     <div id="app-root" class="w-full h-full flex flex-col lg:flex-row gap-0 sm:gap-4 max-w-[1400px] mx-auto relative bg-[#F8F9FA] sm:bg-transparent">
         <!-- Reactivity Root -->
     </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <script>
         const savedZoom = localStorage.getItem('yetta_zoom') || 1;
@@ -59,11 +66,11 @@
             showResetModal: false, 
             showWeeklyConfigModal: false,
             showRechargeModal: false,
-            clientDebtModal: { show: false, clientId: null }, 
+            clientDebtModal: { show: false, clientId: null }, // Nuevo estado para visualizar deudas
             estimationPeriod: 'dia', 
             saveStatus: null, 
             resumenTab: 'todos', 
-            tabOrder: ['dashboard', 'suppliers', 'memberships', 'users', 'tools', 'calculator', 'sales', 'telegram', 'loggen', 'settings'],
+            tabOrder: ['dashboard', 'suppliers', 'memberships', 'users', 'tools', 'calculator', 'sales', 'telegram', 'toolrent', 'loggen', 'settings'],
 
             logGenState: {
                 brand: 'Xiaomi',
@@ -84,6 +91,26 @@
             showTelegramLibrary: false,
             telegramLibrarySearch: '',
             telegramViewModal: { show: false, methodId: null },
+
+            toolRentState: {
+                tools: [
+                    {
+                        id: 'tool_demo_1',
+                        name: 'DFT Pro (Demo)',
+                        orderId: 'View Order #28835',
+                        username: 'user_dft_01',
+                        password: 'Pass123*',
+                        notes: 'PC Mostrador',
+                        defaultCycleHours: 48,
+                        unlockTimestamp: Date.now() + (10 * 3600 * 1000)
+                    }
+                ],
+                currentFilter: 'all',
+                searchQuery: '',
+                modal: { show: false, editingId: null, timingMode: 'available' },
+                deleteModal: { show: false, toolId: null },
+                quickEditModal: { show: false, toolId: null }
+            },
 
             weeklyCycle: {
                 isConfigured: false,
@@ -197,6 +224,30 @@
                     }
                     if (!state.telegramViewModal) state.telegramViewModal = { show: false, methodId: null };
 
+                    if (!state.tabOrder.includes('toolrent')) {
+                        const tgIndex = state.tabOrder.indexOf('telegram');
+                        if (tgIndex !== -1) {
+                            state.tabOrder.splice(tgIndex + 1, 0, 'toolrent');
+                        } else {
+                            state.tabOrder.push('toolrent');
+                        }
+                    }
+
+                    if (!state.toolRentState) {
+                        state.toolRentState = {
+                            tools: defaultState.toolRentState.tools,
+                            currentFilter: 'all',
+                            searchQuery: '',
+                            modal: { show: false, editingId: null, timingMode: 'available' },
+                            deleteModal: { show: false, toolId: null },
+                            quickEditModal: { show: false, toolId: null }
+                        };
+                    } else {
+                        state.toolRentState.modal = { show: false, editingId: null, timingMode: 'available' };
+                        state.toolRentState.deleteModal = { show: false, toolId: null };
+                        state.toolRentState.quickEditModal = { show: false, toolId: null };
+                    }
+
                     if (!state.tabOrder.includes('loggen')) {
                         const settingsIndex = state.tabOrder.indexOf('settings');
                         if (settingsIndex !== -1) {
@@ -293,6 +344,9 @@
                     ${state.showRechargeModal ? renderRechargeModal() : ''}
                     ${state.clientDebtModal.show ? renderClientDebtModal() : ''}
                     ${state.telegramViewModal.show ? renderTelegramViewModal() : ''}
+                    ${state.toolRentState.modal.show ? renderToolRentModal() : ''}
+                    ${state.toolRentState.deleteModal.show ? renderToolRentDeleteModal() : ''}
+                    ${state.toolRentState.quickEditModal.show ? renderToolRentQuickEditModal() : ''}
                 `;
                 lucide.createIcons();
 
@@ -325,6 +379,199 @@
         App.setActiveTab = (tab) => { state.activeTab = tab; render(); };
         App.setEstimationPeriod = (period) => { state.estimationPeriod = period; render(); };
         
+        // Funciones auxiliares para Tool Rent
+        App.formatTimeRemaining = (ms) => {
+            if (ms <= 0) return { expired: true, text: '00:00:00' };
+            const totalSeconds = Math.floor(ms / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            const pad = (n) => String(n).padStart(2, '0');
+            return { expired: false, text: `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s` };
+        };
+
+        App.formatExactDateTime = (timestamp) => {
+            const date = new Date(timestamp);
+            return date.toLocaleString('es-ES', { weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', hour12: true });
+        };
+
+        App.parseTimeStringToMs = (timeStr) => {
+            if (!timeStr) return 0;
+            const parts = timeStr.trim().split(':').map(p => parseInt(p, 10) || 0);
+            let hours = 0, minutes = 0, seconds = 0;
+            if (parts.length >= 3) { [hours, minutes, seconds] = parts; } 
+            else if (parts.length === 2) { [hours, minutes] = parts; } 
+            else if (parts.length === 1) { hours = parts[0]; }
+            return (hours * 3600000) + (minutes * 60000) + (seconds * 1000);
+        };
+
+        App.formatMsToTimeString = (ms) => {
+            if (ms <= 0) return '';
+            const totalSeconds = Math.floor(ms / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        };
+
+        App.showToast = (message, type = 'success') => {
+            const container = document.getElementById('toastContainer');
+            if(!container) return;
+            const toast = document.createElement('div');
+            const bg = type === 'success' ? 'bg-gray-900 border-gray-700 text-white' : 'bg-red-600 border-red-500 text-white';
+            toast.className = `${bg} border pointer-events-auto px-4 py-3 rounded-xl shadow-xl text-xs font-bold flex items-center gap-2.5 transition-all transform duration-300 translate-y-3 opacity-0`;
+            const icon = type === 'success' ? `<svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>` : `<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+            toast.innerHTML = `${icon}<span>${message}</span>`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.remove('translate-y-3', 'opacity-0'));
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
+
+        App.copyAllCreds = (user, pass) => {
+            App.copyTextToClipboard(`User: ${user}\nPass: ${pass}`, 'Login completo');
+        };
+
+        App.copyTextToClipboard = (text, label) => {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                App.showToast(`${label} copiado con éxito`);
+            } catch (err) {
+                App.showToast('Error al copiar', 'warn');
+            }
+            document.body.removeChild(textarea);
+        };
+
+        // Acciones Tool Rent
+        App.setToolRentFilter = (filter) => { state.toolRentState.currentFilter = filter; render(); };
+        App.setToolRentSearch = (query) => { state.toolRentState.searchQuery = query; render(); };
+        
+        App.triggerNewSession = (id) => {
+            const tool = state.toolRentState.tools.find(t => t.id === id);
+            if (tool) {
+                tool.unlockTimestamp = Date.now() + ((tool.defaultCycleHours || 48) * 3600 * 1000);
+                saveLocalDatabase();
+                render();
+                App.showToast(`Bloqueo iniciado: ${tool.defaultCycleHours} horas`);
+            }
+        };
+
+        App.markAsAvailable = (id) => {
+            const tool = state.toolRentState.tools.find(t => t.id === id);
+            if (tool) {
+                tool.unlockTimestamp = Date.now() - 1000;
+                saveLocalDatabase();
+                render();
+                App.showToast('Herramienta disponible de inmediato');
+            }
+        };
+
+        App.openToolRentModal = (id = null) => {
+            let timingMode = 'custom_remaining'; // Default to custom remaining since others are removed
+            state.toolRentState.modal = { show: true, editingId: id, timingMode };
+            render();
+        };
+
+        App.closeToolRentModal = () => {
+            state.toolRentState.modal = { show: false, editingId: null, timingMode: 'custom_remaining' };
+            render();
+        };
+
+        App.setToolRentTimingMode = (mode) => {
+            state.toolRentState.modal.timingMode = mode;
+            render();
+        };
+
+        App.applyToolRentPreset = (name, hours) => {
+            const nameInput = document.getElementById('tr-toolName');
+            const hoursInput = document.getElementById('tr-defaultCycleHours');
+            if (nameInput) nameInput.value = name;
+            if (hoursInput) hoursInput.value = hours;
+        };
+
+        App.saveToolRent = (e) => {
+            e.preventDefault();
+            const id = state.toolRentState.modal.editingId || ('t_' + Date.now());
+            const name = e.target.toolName.value.trim();
+            const orderId = e.target.toolOrderId.value.trim();
+            const username = e.target.toolUsername.value.trim();
+            const password = e.target.toolPassword.value.trim();
+            const notes = e.target.toolNotes.value.trim();
+            const defaultCycleHours = parseInt(e.target.defaultCycleHours.value, 10) || 48;
+            
+            let unlockTs = Date.now();
+            const timeStr = e.target.remTimeString ? e.target.remTimeString.value.trim() : '';
+            if (timeStr) {
+                unlockTs += App.parseTimeStringToMs(timeStr);
+            } else {
+                // If no time is provided, assume it's available immediately
+                 unlockTs -= 1000;
+            }
+
+            const toolData = { id, name, orderId, username, password, notes, defaultCycleHours, unlockTimestamp: unlockTs };
+            const idx = state.toolRentState.tools.findIndex(t => t.id === id);
+            
+            if (idx >= 0) {
+                // Conservar timestamp si se está editando pero se eligió 'available' accidentalmente? No, respetar la opción seleccionada.
+                // Sin embargo, si en el UI estaba hidden y no se tocó, mejor mantener. En este flujo siempre se actualiza.
+                state.toolRentState.tools[idx] = toolData;
+            } else {
+                state.toolRentState.tools.unshift(toolData);
+            }
+
+            App.closeToolRentModal();
+            App.showToast('Guardado correctamente');
+        };
+
+        App.promptDeleteToolRent = (id) => {
+            state.toolRentState.deleteModal = { show: true, toolId: id };
+            render();
+        };
+        App.closeToolRentDeleteModal = () => {
+            state.toolRentState.deleteModal = { show: false, toolId: null };
+            render();
+        };
+        App.confirmDeleteToolRent = () => {
+            const id = state.toolRentState.deleteModal.toolId;
+            state.toolRentState.tools = state.toolRentState.tools.filter(t => t.id !== id);
+            App.closeToolRentDeleteModal();
+            App.showToast('Eliminada del panel');
+        };
+
+        App.openQuickEditTime = (id) => {
+            state.toolRentState.quickEditModal = { show: true, toolId: id };
+            render();
+            setTimeout(() => {
+                const input = document.getElementById('quickEditTimeInput');
+                if(input) { input.focus(); input.select(); }
+            }, 100);
+        };
+        App.closeQuickEditTime = () => {
+            state.toolRentState.quickEditModal = { show: false, toolId: null };
+            render();
+        };
+        App.saveQuickEditTime = (e) => {
+            e.preventDefault();
+            const id = state.toolRentState.quickEditModal.toolId;
+            const tool = state.toolRentState.tools.find(t => t.id === id);
+            if (tool) {
+                const timeStr = e.target.quickEditTimeInput.value.trim();
+                const addedMs = App.parseTimeStringToMs(timeStr);
+                tool.unlockTimestamp = Date.now() + addedMs;
+                App.closeQuickEditTime();
+                App.showToast('Tiempo ajustado con éxito');
+            }
+        };
+
         App.setZoom = (val) => {
             localStorage.setItem('yetta_zoom', val);
             state.zoomLevel = val;
@@ -1522,6 +1769,7 @@
                 { id: 'calculator', icon: 'calculator', tooltip: 'Calculadora' },
                 { id: 'sales', icon: 'shopping-bag', tooltip: 'Ventas e Inversiones' },
                 { id: 'telegram', icon: 'send', tooltip: 'Mensajes de Telegram' },
+                { id: 'toolrent', icon: 'clock', tooltip: 'Control de Tools' },
                 { id: 'loggen', icon: 'terminal', tooltip: 'Generador de Logs' },
                 { id: 'settings', icon: 'settings', tooltip: 'Ajustes' }
             ];
@@ -1567,7 +1815,7 @@
         function renderMobileNav() {
             return `<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around p-2 z-50 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)] overflow-x-auto">
                 ${state.tabOrder.slice(0, 6).map(id => {
-                    const icons = { dashboard:'layout-grid', suppliers:'building-2', memberships:'credit-card', users:'users', tools:'key', calculator:'calculator', sales:'shopping-bag', telegram:'send', loggen:'terminal', settings:'settings' };
+                    const icons = { dashboard:'layout-grid', suppliers:'building-2', memberships:'credit-card', users:'users', tools:'key', calculator:'calculator', sales:'shopping-bag', telegram:'send', toolrent:'clock', loggen:'terminal', settings:'settings' };
                     return `<button onclick="App.setActiveTab('${id}')" class="p-2 mx-1 rounded-xl flex items-center justify-center flex-shrink-0 ${state.activeTab === id ? 'text-red-600 bg-red-50' : 'text-gray-400'}"><i data-lucide="${icons[id]}" class="w-5 h-5"></i></button>`;
                 }).join('')}
             </nav>`;
@@ -1582,6 +1830,7 @@
              if(state.activeTab === 'calculator') return renderCalculator();
              if(state.activeTab === 'sales') return renderSales();
              if(state.activeTab === 'telegram') return renderTelegram();
+             if(state.activeTab === 'toolrent') return renderToolRent();
              if(state.activeTab === 'loggen') return renderLogGen();
              if(state.activeTab === 'settings') return renderSettings();
              return '';
@@ -2590,6 +2839,302 @@
             </div>`;
         }
 
+        function renderToolRent() {
+            const now = Date.now();
+            const { tools, currentFilter, searchQuery } = state.toolRentState;
+
+            const filtered = tools.filter(tool => {
+                const isReady = (tool.unlockTimestamp || 0) <= now;
+                if (currentFilter === 'available' && !isReady) return false;
+                if (currentFilter === 'cooldown' && isReady) return false;
+                if (searchQuery.trim()) {
+                    const q = searchQuery.toLowerCase();
+                    return tool.name.toLowerCase().includes(q) || tool.username.toLowerCase().includes(q) || (tool.notes || '').toLowerCase().includes(q) || (tool.orderId || '').toLowerCase().includes(q);
+                }
+                return true;
+            }).sort((a, b) => (b.unlockTimestamp || 0) - (a.unlockTimestamp || 0));
+
+            const totalAvailable = tools.filter(t => (t.unlockTimestamp || 0) <= now).length;
+            const totalCooldown = tools.filter(t => (t.unlockTimestamp || 0) > now).length;
+
+            return `
+            <div class="flex flex-col h-full bg-gray-100 -mx-2 sm:mx-0 sm:rounded-2xl overflow-hidden font-sans">
+                <header class="border-b border-gray-200 bg-white/90 backdrop-blur sticky top-0 z-30 shadow-sm flex-shrink-0">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center shadow-md shadow-red-600/20">
+                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <div>
+                                <h1 class="text-base sm:text-lg font-bold tracking-tight text-gray-900 flex items-center gap-2">ToolRent <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-mono border border-gray-200">Timer Sync</span></h1>
+                                <p class="text-xs text-gray-500 hidden sm:block">Control de cooldown sincronizado con tu PC</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="App.openToolRentModal()" class="flex items-center gap-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-medium px-4 py-2 rounded-xl text-sm transition-all shadow-md shadow-red-600/20">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                                <span class="hidden sm:inline">Añadir Herramienta</span><span class="sm:hidden">Añadir</span>
+                            </button>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div class="bg-white border border-gray-200 shadow-sm rounded-2xl p-4 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Disponibles Ahora</p>
+                                <h3 class="text-2xl font-extrabold text-gray-800 mt-1 font-mono">${totalAvailable}</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Listas para otra PC</p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                        </div>
+
+                        <div class="bg-white border border-gray-200 shadow-sm rounded-2xl p-4 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">En Cooldown</p>
+                                <h3 class="text-2xl font-extrabold text-red-600 mt-1 font-mono">${totalCooldown}</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Bloqueadas temporalmente</p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                        </div>
+
+                        <div class="bg-white border border-gray-200 shadow-sm rounded-2xl p-4 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Administradas</p>
+                                <h3 class="text-2xl font-extrabold text-gray-700 mt-1 font-mono">${tools.length}</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Herramientas en panel</p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white shadow-sm border border-gray-200 p-3 rounded-2xl flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+                        <div class="relative flex-1">
+                            <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <input type="text" id="tr-searchInput" placeholder="Buscar por nombre, usuario o nota..." value="${searchQuery}" oninput="App.setToolRentSearch(this.value)" class="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-colors">
+                        </div>
+
+                        <div class="flex items-center gap-1.5 bg-gray-50 p-1 rounded-xl border border-gray-200 text-xs overflow-x-auto custom-scrollbar">
+                            <button onclick="App.setToolRentFilter('all')" class="px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${currentFilter === 'all' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}">Todas</button>
+                            <button onclick="App.setToolRentFilter('available')" class="px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${currentFilter === 'available' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}">Disponibles</button>
+                            <button onclick="App.setToolRentFilter('cooldown')" class="px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${currentFilter === 'cooldown' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}">En Cooldown</button>
+                        </div>
+                    </div>
+
+                    ${filtered.length > 0 ? `
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                            ${filtered.map(tool => {
+                                const remainingMs = (tool.unlockTimestamp || 0) - now;
+                                const isReady = remainingMs <= 0;
+                                const timeObj = App.formatTimeRemaining(remainingMs);
+                                const exactRelease = App.formatExactDateTime(tool.unlockTimestamp);
+                                const cardClass = isReady ? 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md' : 'border-red-200 bg-gradient-to-b from-white to-red-50/30 hover:border-red-300 hover:shadow-md';
+                                const badgeClass = isReady ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-100 text-red-700 border border-red-200 animate-pulse';
+                                const statusLabel = isReady ? '✓ DISPONIBLE' : '⏳ EN USO';
+                                const timerBg = isReady ? 'bg-gray-50 border-gray-100 text-gray-400' : 'bg-white border-red-100 shadow-inner text-red-600';
+                                const timerText = isReady ? 'text-gray-400' : 'text-red-600 font-black tracking-tight';
+
+                                return `
+                                <div class="rounded-3xl border ${cardClass} p-5 flex flex-col justify-between transition-all duration-300 relative overflow-hidden group shadow-sm">
+                                    ${!isReady ? `<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-400 to-red-600"></div>` : `<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-400 to-emerald-500"></div>`}
+                                    <div>
+                                        <div class="flex flex-col xl:flex-row items-start justify-between gap-3 mb-4">
+                                            <div class="flex-1 w-full">
+                                                <div class="flex items-center justify-between xl:justify-start gap-2 flex-wrap mb-1">
+                                                    <h3 class="font-black text-gray-900 text-lg tracking-tight">${tool.name}</h3>
+                                                    <span class="text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-wider ${badgeClass} whitespace-nowrap shadow-sm">
+                                                        ${statusLabel}
+                                                    </span>
+                                                </div>
+                                                ${tool.orderId ? `<span class="inline-block text-[10px] font-mono bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200 mb-1">${tool.orderId}</span>` : ''}
+                                                ${tool.notes ? `<p class="text-[11px] font-medium text-gray-500 mt-1 line-clamp-2 bg-gray-50 p-1.5 rounded-lg border border-gray-100">📌 ${tool.notes}</p>` : ''}
+                                            </div>
+                                        </div>
+
+                                        <div class="p-4 rounded-2xl border ${timerBg} my-4 flex flex-col items-center justify-center relative overflow-hidden group-hover:scale-[1.02] transition-transform duration-300">
+                                            <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">${isReady ? 'Tiempo Restante' : 'Desbloqueo en'}</span>
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-mono ${timerText} text-3xl tool-timer-display drop-shadow-sm" data-ts="${tool.unlockTimestamp}" data-ready="${isReady}">
+                                                    ${isReady ? '00:00:00' : timeObj.text}
+                                                </span>
+                                                ${!isReady ? `<button onclick="App.openQuickEditTime('${tool.id}')" class="text-gray-300 hover:text-red-600 transition-colors ml-1" title="Corregir tiempo"><i data-lucide="edit-3" class="w-4 h-4"></i></button>` : ''}
+                                            </div>
+                                            <div class="mt-2 text-center w-full">
+                                                <p class="text-[9px] font-bold text-gray-400 uppercase tracking-wide border-t border-gray-200/50 pt-1.5 mt-1">${isReady ? 'Liberada desde' : 'Fecha exacta de liberación'}</p>
+                                                <p class="text-[11px] font-medium ${isReady ? 'text-gray-500' : 'text-gray-700'} capitalize truncate">${exactRelease}</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-2 text-xs bg-white p-3 rounded-xl border border-gray-100 shadow-sm mt-4 relative">
+                                            <button onclick="App.copyAllCreds('${tool.username}', '${tool.password}')" class="absolute top-2 right-2 text-gray-300 hover:text-blue-500 bg-gray-50 hover:bg-blue-50 p-1.5 rounded-lg transition-colors" title="Copiar usuario y contraseña"><i data-lucide="copy" class="w-4 h-4"></i></button>
+                                            
+                                            <div class="flex flex-col pr-8">
+                                                <span class="text-gray-400 font-bold uppercase text-[9px] tracking-wider mb-0.5">Usuario</span>
+                                                <span class="font-mono text-gray-800 font-bold select-all bg-gray-50 px-2 py-1 rounded border border-gray-100 truncate">${tool.username}</span>
+                                            </div>
+                                            <div class="flex flex-col pr-8 pt-1">
+                                                <span class="text-gray-400 font-bold uppercase text-[9px] tracking-wider mb-0.5">Contraseña</span>
+                                                <span class="font-mono text-gray-800 font-bold select-all bg-gray-50 px-2 py-1 rounded border border-gray-100 truncate">${tool.password}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3">
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <button onclick="App.triggerNewSession('${tool.id}')" class="w-full bg-gray-900 hover:bg-gray-800 active:scale-95 text-white text-[11px] font-bold py-2.5 px-2 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm">
+                                                <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                                                <span>Bloquear (${tool.defaultCycleHours || 48}h)</span>
+                                            </button>
+                                            <button onclick="App.markAsAvailable('${tool.id}')" class="w-full ${isReady ? 'opacity-50 cursor-not-allowed bg-gray-50 text-gray-400 border border-gray-200' : 'bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 shadow-sm'} text-[11px] font-bold py-2.5 px-2 rounded-xl transition-colors flex items-center justify-center gap-1.5" ${isReady ? 'disabled' : ''}>
+                                                <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
+                                                <span>Liberar</span>
+                                            </button>
+                                        </div>
+                                        <div class="flex items-center justify-end text-xs pt-1 border-t border-gray-50 mt-1">
+                                            <div class="flex items-center gap-1">
+                                                <button onclick="App.openToolRentModal('${tool.id}')" class="text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-bold uppercase"><i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar</button>
+                                                <button onclick="App.promptDeleteToolRent('${tool.id}')" class="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-bold uppercase"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Eliminar</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    ` : `
+                        <div class="text-center py-16 px-4 border border-dashed border-gray-300 rounded-3xl bg-gray-50">
+                            <div class="w-16 h-16 rounded-2xl bg-gray-200 flex items-center justify-center mx-auto text-gray-500 mb-4">
+                                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                            </div>
+                            <h3 class="text-base font-bold text-gray-800">Panel vacío</h3>
+                            <p class="text-xs text-gray-500 mt-1 max-w-sm mx-auto">Agrega tus cuentas rentadas para comenzar a medir sus tiempos de espera.</p>
+                            <button onclick="App.openToolRentModal()" class="mt-4 inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-xl text-xs transition shadow-sm shadow-red-500/30">Añadir herramienta</button>
+                        </div>
+                    `}
+                </div>
+            </div>`;
+        }
+
+        function renderToolRentModal() {
+            const m = state.toolRentState.modal;
+            const isEditing = !!m.editingId;
+            const tool = isEditing ? state.toolRentState.tools.find(t => t.id === m.editingId) : null;
+
+            return `
+            <div class="fixed inset-0 z-[60] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto font-sans">
+                <div class="bg-white border border-gray-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative my-8">
+                    <div class="flex items-center justify-between pb-4 border-b border-gray-100">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center border border-red-100 font-bold text-sm">+</div>
+                            <h2 class="text-base font-bold text-gray-900">${isEditing ? 'Editar Herramienta' : 'Configurar Herramienta'}</h2>
+                        </div>
+                        <button onclick="App.closeToolRentModal()" class="text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                    </div>
+
+                    <form onsubmit="App.saveToolRent(event)" class="mt-5 space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1.5">Software</label>
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <button type="button" onclick="App.applyToolRentPreset('DFT Pro', 48)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">DFT Pro</span><span class="text-[10px] text-gray-500">48h Bloqueo</span></button>
+                                <button type="button" onclick="App.applyToolRentPreset('UnlockTool', 6)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">UnlockTool</span><span class="text-[10px] text-gray-500">6h Bloqueo</span></button>
+                                <button type="button" onclick="App.applyToolRentPreset('Pandora Box', 24)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">Pandora</span><span class="text-[10px] text-gray-500">24h Bloqueo</span></button>
+                                <button type="button" onclick="App.applyToolRentPreset('Chimera Tool', 48)" class="text-left p-2 rounded-xl bg-gray-50 border border-gray-200 text-xs hover:border-red-400 hover:bg-red-50 transition"><span class="font-bold text-gray-800 block">Chimera</span><span class="text-[10px] text-gray-500">48h Bloqueo</span></button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <input type="text" id="tr-toolName" name="toolName" value="${tool ? tool.name : ''}" required placeholder="Ej: Z3X, Octoplus..." class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500">
+                                <input type="text" name="toolOrderId" value="${tool ? (tool.orderId || '') : ''}" placeholder="ID (Ej: View Order #28835)" class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1.5">Usuario / Login</label>
+                                <input type="text" name="toolUsername" value="${tool ? tool.username : ''}" required placeholder="ej: user_123" class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1.5">Contraseña</label>
+                                <input type="text" name="toolPassword" value="${tool ? tool.password : ''}" required placeholder="Contraseña" class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1.5">Notas (Opcional)</label>
+                            <input type="text" name="toolNotes" value="${tool ? (tool.notes || '') : ''}" placeholder="Ubicación o cliente..." class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500">
+                        </div>
+
+                        <div class="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
+                            <label class="block text-xs font-black text-gray-800 uppercase tracking-wide">Ajuste de Tiempo Actual</label>
+                            <div class="space-y-2 text-xs hidden">
+                                <!-- Opciones ocultas para mantener compatibilidad si es necesario, pero forzamos custom_remaining -->
+                                <input type="radio" name="timingMode" value="custom_remaining" checked class="hidden">
+                            </div>
+
+                            <div class="pt-1">
+                                <label class="block text-[11px] font-bold text-gray-600 mb-1">Tiempo restante (Pegar en formato HH:MM:SS o HH:MM)</label>
+                                <input type="text" name="remTimeString" id="tr-remTimeString" value="${tool ? App.formatMsToTimeString(Math.max(0, tool.unlockTimestamp - Date.now())) : ''}" placeholder="ej: 24:43:21 (Dejar vacío si está disponible)" class="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 font-mono text-center tracking-widest shadow-inner">
+                                <p class="text-[9px] text-gray-400 text-center mt-1">Si dejas este campo vacío, la herramienta se marcará como disponible inmediatamente.</p>
+                            </div>
+
+                            <div class="pt-3 border-t border-gray-200 flex items-center justify-between text-xs mt-3">
+                                <span class="text-gray-600 font-bold">Ciclo Total (Regla):</span>
+                                <div class="flex items-center gap-1.5">
+                                    <input type="number" id="tr-defaultCycleHours" name="defaultCycleHours" value="${tool ? (tool.defaultCycleHours || 48) : 48}" min="1" max="168" class="w-16 bg-white border border-gray-300 rounded-lg px-2 py-1 text-center font-mono text-gray-900 text-xs font-bold focus:border-red-500 focus:outline-none">
+                                    <span class="text-gray-600">Hr</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end gap-3 pt-3">
+                            <button type="button" onclick="App.closeToolRentModal()" class="px-4 py-2.5 rounded-xl border border-gray-300 text-gray-600 hover:bg-gray-100 text-xs font-bold transition">Cancelar</button>
+                            <button type="submit" class="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold transition shadow-md shadow-red-600/20">Guardar Datos</button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+        }
+
+        function renderToolRentDeleteModal() {
+            return `
+            <div class="fixed inset-0 z-[70] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
+                <div class="bg-white border border-gray-200 rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center">
+                    <div class="w-12 h-12 rounded-2xl bg-gray-100 text-gray-600 border border-gray-200 flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </div>
+                    <h3 class="text-base font-bold text-gray-900">¿Eliminar herramienta?</h3>
+                    <p class="text-xs text-gray-500 mt-1.5">Se perderán todos los datos guardados de esta herramienta.</p>
+                    <div class="flex gap-2 justify-center mt-6">
+                        <button onclick="App.closeToolRentDeleteModal()" class="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-bold transition">Cancelar</button>
+                        <button onclick="App.confirmDeleteToolRent()" class="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold transition">Sí, Eliminar</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderToolRentQuickEditModal() {
+            return `
+            <div class="fixed inset-0 z-[70] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
+                <form onsubmit="App.saveQuickEditTime(event)" class="bg-white border border-gray-200 rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center relative">
+                    <div class="w-12 h-12 rounded-2xl bg-red-50 text-red-600 border border-red-100 flex items-center justify-center mx-auto mb-4 shadow-sm">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <h3 class="text-base font-bold text-gray-900 mb-1">Ajustar Tiempo Restante</h3>
+                    <p class="text-xs text-gray-500 mb-5">Corrige el tiempo si hubo algún desfase.</p>
+                    <label class="block text-[11px] font-bold text-gray-600 mb-1.5 text-left">Nuevo tiempo restante (HH:MM:SS)</label>
+                    <input type="text" name="quickEditTimeInput" id="quickEditTimeInput" placeholder="Ej: 24:43:21" required class="w-full bg-gray-50 border border-gray-300 rounded-xl px-4 py-3 text-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 font-mono text-center tracking-widest mb-5">
+                    <div class="flex gap-2 justify-center">
+                        <button type="button" onclick="App.closeQuickEditTime()" class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-bold transition">Cancelar</button>
+                        <button type="submit" class="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition shadow-md shadow-red-600/20">Guardar</button>
+                    </div>
+                </form>
+            </div>`;
+        }
+
         function renderLogGen() {
             const { brand, logType, device, build, generatedLog } = state.logGenState || { brand: 'Xiaomi', logType: 'FRP', device: '', build: '', generatedLog: '' };
             const connState = state.connGenState || { type: 'Xiaomi', ip: '', includeLink: false, generatedText: '' };
@@ -3009,6 +3554,22 @@
                 const now = new Date();
                 const timeString = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 clockEls.forEach(el => el.textContent = timeString);
+            }
+
+            if (state.activeTab === 'toolrent') {
+                const timers = document.querySelectorAll('.tool-timer-display');
+                let needsRender = false;
+                timers.forEach(el => {
+                    const ts = parseInt(el.dataset.ts, 10);
+                    const isReadyNow = ts <= Date.now();
+                    const wasReady = el.dataset.ready === 'true';
+                    if (isReadyNow !== wasReady) needsRender = true;
+                    if (!isReadyNow) {
+                        const obj = App.formatTimeRemaining(ts - Date.now());
+                        el.textContent = obj.text;
+                    }
+                });
+                if (needsRender) render();
             }
         };
 
